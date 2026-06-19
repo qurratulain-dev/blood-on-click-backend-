@@ -11,7 +11,7 @@ class DonationHistory extends Model
 
     protected $fillable = [
         'donor_id', 'bank_id', 'blood_group', 'quantity',
-        'status', 'donation_date', 'notes',
+        'status', 'donation_date', 'notes', 'medical_report_path',
     ];
 
     protected function casts(): array

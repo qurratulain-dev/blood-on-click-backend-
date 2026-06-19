@@ -23,13 +23,47 @@ class DonorController extends Controller
     public function dashboard(Request $request): JsonResponse
     {
         $donor = $this->getDonor($request);
+        $donorId = $donor->id;
+
+        $totalDonations = DonationHistory::where('donor_id', $donorId)->count();
+        $completedDonations = DonationHistory::where('donor_id', $donorId)->where('status', 'completed')->count();
+        $totalUnits = DonationHistory::where('donor_id', $donorId)->sum('quantity');
+
+        $lastDonation = DonationHistory::where('donor_id', $donorId)
+            ->where('status', 'completed')
+            ->orderBy('donation_date', 'desc')
+            ->first();
+
+        $nextEligibleDate = null;
+        if ($lastDonation?->donation_date) {
+            $nextEligibleDate = $lastDonation->donation_date->copy()->addDays(90)->format('Y-m-d');
+        }
+
+        $recentDonations = DonationHistory::where('donor_id', $donorId)
+            ->with('bank')
+            ->orderBy('donation_date', 'desc')
+            ->limit(5)
+            ->get()
+            ->map(fn ($d) => [
+                'id' => $d->id,
+                'bank_name' => $d->bank->bank_name ?? 'N/A',
+                'blood_group' => $d->blood_group,
+                'quantity' => $d->quantity,
+                'donation_date' => $d->donation_date?->format('Y-m-d'),
+                'status' => $d->status,
+            ]);
+
+        $latestMedicalReport = MedicalReport::where('donor_id', $donorId)
+            ->orderBy('created_at', 'desc')
+            ->first();
 
         return response()->json([
-            'total_donations' => DonationHistory::where('donor_id', $donor->id)->count(),
-            'pending_donations' => DonationHistory::where('donor_id', $donor->id)->where('status', 'pending')->count(),
-            'completed_donations' => DonationHistory::where('donor_id', $donor->id)->where('status', 'completed')->count(),
-            'unread_notifications' => Notification::where('user_type', 'donor')
-                ->where('user_id', $donor->id)->where('is_read', false)->count(),
+            'total_donations' => $totalDonations,
+            'completed_donations' => $completedDonations,
+            'total_units_donated' => $totalUnits,
+            'next_eligible_date' => $nextEligibleDate,
+            'recent_donations' => $recentDonations,
+            'latest_medical_report' => $latestMedicalReport,
             'profile' => $donor,
         ]);
     }

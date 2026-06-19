@@ -22,13 +22,36 @@ class SeekerController extends Controller
     public function dashboard(Request $request): JsonResponse
     {
         $seeker = $this->getSeeker($request);
+        $seekerId = $seeker->id;
+
+        $totalRequests = BloodRequest::where('seeker_id', $seekerId)->count();
+        $pendingRequests = BloodRequest::where('seeker_id', $seekerId)->where('status', 'pending')->count();
+        $approvedRequests = BloodRequest::where('seeker_id', $seekerId)->where('status', 'approved')->count();
+        $fulfilledRequests = BloodRequest::where('seeker_id', $seekerId)->where('status', 'fulfilled')->count();
+        $rejectedRequests = BloodRequest::where('seeker_id', $seekerId)->where('status', 'rejected')->count();
+
+        $recentRequests = BloodRequest::where('seeker_id', $seekerId)
+            ->with('bank')
+            ->orderBy('requested_date', 'desc')
+            ->limit(5)
+            ->get()
+            ->map(fn ($r) => [
+                'id' => $r->id,
+                'bank_name' => $r->bank->bank_name ?? 'N/A',
+                'blood_group' => $r->blood_group,
+                'quantity' => $r->quantity,
+                'reason' => $r->reason,
+                'requested_date' => $r->requested_date?->format('Y-m-d'),
+                'status' => $r->status,
+            ]);
 
         return response()->json([
-            'total_requests' => BloodRequest::where('seeker_id', $seeker->id)->count(),
-            'pending_requests' => BloodRequest::where('seeker_id', $seeker->id)->where('status', 'pending')->count(),
-            'fulfilled_requests' => BloodRequest::where('seeker_id', $seeker->id)->where('status', 'fulfilled')->count(),
-            'unread_notifications' => Notification::where('user_type', 'seeker')
-                ->where('user_id', $seeker->id)->where('is_read', false)->count(),
+            'total_requests' => $totalRequests,
+            'pending_requests' => $pendingRequests,
+            'approved_requests' => $approvedRequests,
+            'fulfilled_requests' => $fulfilledRequests,
+            'rejected_requests' => $rejectedRequests,
+            'recent_requests' => $recentRequests,
             'profile' => $seeker,
         ]);
     }

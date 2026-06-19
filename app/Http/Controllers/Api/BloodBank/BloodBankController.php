@@ -23,14 +23,42 @@ class BloodBankController extends Controller
     public function dashboard(Request $request): JsonResponse
     {
         $bank = $this->getBank($request);
+        $bankId = $bank->id;
+
+        $totalUnits = $bank->bloodStocks()->sum('quantity');
+        $totalDonations = DonationHistory::where('bank_id', $bankId)->count();
+        $totalDonatedUnits = DonationHistory::where('bank_id', $bankId)->sum('quantity');
+        $pendingRequests = BloodRequest::where('bank_id', $bankId)->where('status', 'pending')->count();
+
+        $stockByGroup = $bank->bloodStocks()->orderBy('blood_group')->get()->map(fn ($s) => [
+            'id' => $s->id,
+            'blood_group' => $s->blood_group,
+            'quantity' => $s->quantity,
+            'status' => $s->quantity < 10 ? 'Critical' : ($s->quantity < 30 ? 'Low' : 'Adequate'),
+        ]);
+
+        $recentRequests = BloodRequest::where('bank_id', $bankId)
+            ->with('seeker')
+            ->orderBy('requested_date', 'desc')
+            ->limit(5)
+            ->get()
+            ->map(fn ($r) => [
+                'id' => $r->id,
+                'seeker_name' => $r->seeker->full_name ?? 'N/A',
+                'blood_group' => $r->blood_group,
+                'quantity' => $r->quantity,
+                'urgency' => $r->reason === 'emergency' ? 'Emergency' : 'Normal',
+                'requested_date' => $r->requested_date?->format('Y-m-d'),
+                'status' => $r->status,
+            ]);
 
         return response()->json([
-            'total_stock' => $bank->bloodStocks()->sum('quantity'),
-            'stock_by_group' => $bank->bloodStocks()->get(),
-            'pending_requests' => BloodRequest::where('bank_id', $bank->id)->where('status', 'pending')->count(),
-            'total_donations' => DonationHistory::where('bank_id', $bank->id)->count(),
-            'unread_notifications' => Notification::where('user_type', 'blood_bank')
-                ->where('user_id', $bank->id)->where('is_read', false)->count(),
+            'total_units' => $totalUnits,
+            'stock_by_group' => $stockByGroup,
+            'total_donations' => $totalDonations,
+            'total_donated_units' => $totalDonatedUnits,
+            'pending_requests' => $pendingRequests,
+            'recent_requests' => $recentRequests,
         ]);
     }
 
