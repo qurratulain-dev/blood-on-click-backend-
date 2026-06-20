@@ -15,11 +15,19 @@ class Donor extends Model
         'address',
         'age',
         'weight',
+        'last_donation_date',
         'gender',
         'status',
         'latitude',
         'longitude',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'last_donation_date' => 'date',
+        ];
+    }
 
     public function user(): BelongsTo
     {

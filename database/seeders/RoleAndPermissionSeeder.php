@@ -70,9 +70,9 @@ class RoleAndPermissionSeeder extends Seeder
 
         // ===================== DEFAULT ADMIN =====================
         $admin = User::create([
-            'name' => 'Super Admin',
-            'username' => 'superadmin',
-            'email' => 'dev.quratulain@gmail.com',
+            'name' => 'Quratulain',
+            'username' => 'dev.quratulain',
+            'email' => 'dev.quratulain',
             'password' => bcrypt('Ainaa*220'),
             'is_active' => true,
         ]);

@@ -109,7 +109,18 @@ class BloodBankController extends Controller
             'quantity' => 'required|integer|min:0',
         ]);
 
+        $previousQty = $stock->quantity;
         $stock->update($validated);
+
+        // Create notification when stock drops to critical level
+        if ($validated['quantity'] < 10 && $previousQty >= 10) {
+            Notification::create([
+                'user_type' => 'blood_bank',
+                'user_id' => $bank->id,
+                'title' => 'Low Stock Alert',
+                'message' => "Your {$stock->blood_group} blood stock is critically low ({$validated['quantity']} units). Please arrange for more donations.",
+            ]);
+        }
 
         return response()->json([
             'message' => 'Stock updated successfully',
@@ -120,10 +131,31 @@ class BloodBankController extends Controller
     public function requests(Request $request): JsonResponse
     {
         $bank = $this->getBank($request);
-        $requests = BloodRequest::where('bank_id', $bank->id)
+        $requests = BloodRequest::where(function ($q) use ($bank) {
+                $q->where('bank_id', $bank->id)
+                  ->orWhere(function ($q2) {
+                      $q2->whereNull('bank_id')->where('status', 'pending');
+                  });
+            })
             ->with('seeker')
-            ->orderBy('created_at', 'desc')
-            ->get();
+            ->orderByRaw("CASE WHEN urgency = 'emergency' THEN 0 ELSE 1 END")
+            ->orderBy('requested_date', 'asc')
+            ->get()
+            ->map(fn ($r) => [
+                'id' => $r->id,
+                'seeker_id' => $r->seeker_id,
+                'seeker_name' => $r->seeker->full_name ?? 'N/A',
+                'seeker_phone' => $r->seeker->phone ?? 'N/A',
+                'blood_group' => $r->blood_group,
+                'quantity' => $r->quantity,
+                'patient_name' => $r->patient_name,
+                'patient_age' => $r->patient_age,
+                'hospital_name' => $r->hospital_name,
+                'urgency' => $r->urgency ?? 'normal',
+                'requested_date' => $r->requested_date?->format('Y-m-d h:i A'),
+                'status' => $r->status,
+                'bank_id' => $r->bank_id,
+            ]);
 
         return response()->json($requests);
     }
@@ -132,7 +164,7 @@ class BloodBankController extends Controller
     {
         $bank = $this->getBank($request);
 
-        if ($bloodRequest->bank_id !== $bank->id) {
+        if ($bloodRequest->bank_id && $bloodRequest->bank_id !== $bank->id) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -140,23 +172,64 @@ class BloodBankController extends Controller
             'status' => ['required', Rule::in(['approved', 'rejected', 'fulfilled'])],
         ]);
 
-        $bloodRequest->update([
-            'status' => $validated['status'],
-            'fulfilled_date' => $validated['status'] === 'fulfilled' ? now() : null,
-        ]);
-
-        if ($validated['status'] === 'fulfilled') {
+        if ($validated['status'] === 'approved') {
             $stock = BloodStock::where('bank_id', $bank->id)
                 ->where('blood_group', $bloodRequest->blood_group)
                 ->first();
-            if ($stock) {
-                $stock->decrement('quantity', $bloodRequest->quantity);
+
+            if (!$stock || $stock->quantity < $bloodRequest->quantity) {
+                $available = $stock->quantity ?? 0;
+                return response()->json([
+                    'message' => "Insufficient stock! Available: {$available} units, Required: {$bloodRequest->quantity} units",
+                ], 422);
             }
+
+            $bloodRequest->update([
+                'status' => 'approved',
+                'bank_id' => $bank->id,
+            ]);
+
+            $stock->decrement('quantity', $bloodRequest->quantity);
+
+            Notification::create([
+                'user_type' => 'seeker',
+                'user_id' => $bloodRequest->seeker_id,
+                'title' => 'Blood Request Approved',
+                'message' => "Your blood request for {$bloodRequest->quantity} unit(s) of {$bloodRequest->blood_group} has been approved. Please visit our blood bank.",
+            ]);
+
+            Notification::create([
+                'user_type' => 'admin',
+                'user_id' => 1,
+                'title' => 'Request Approved',
+                'message' => "Blood request #{$bloodRequest->id} has been approved by {$bank->bank_name}.",
+            ]);
+        } elseif ($validated['status'] === 'rejected') {
+            $bloodRequest->update(['status' => 'rejected']);
+
+            Notification::create([
+                'user_type' => 'seeker',
+                'user_id' => $bloodRequest->seeker_id,
+                'title' => 'Blood Request Cancelled',
+                'message' => 'Your blood request has been cancelled by the blood bank. Please try another bank.',
+            ]);
+        } elseif ($validated['status'] === 'fulfilled') {
+            $bloodRequest->update([
+                'status' => 'fulfilled',
+                'fulfilled_date' => now(),
+            ]);
+
+            Notification::create([
+                'user_type' => 'seeker',
+                'user_id' => $bloodRequest->seeker_id,
+                'title' => 'Blood Request Completed',
+                'message' => 'Your blood request has been marked as completed. Thank you for using our service.',
+            ]);
         }
 
         return response()->json([
-            'message' => 'Request status updated',
-            'request' => $bloodRequest,
+            'message' => 'Request status updated successfully',
+            'request' => $bloodRequest->fresh(),
         ]);
     }
 
@@ -193,27 +266,55 @@ class BloodBankController extends Controller
             'to' => 'nullable|date|after_or_equal:from',
         ]);
 
-        $from = $validated['from'] ?? now()->startOfMonth();
-        $to = $validated['to'] ?? now();
+        $from = $validated['from'] ?? now()->startOfMonth()->format('Y-m-d');
+        $to = $validated['to'] ?? now()->format('Y-m-d');
 
         $donations = DonationHistory::where('bank_id', $bank->id)
-            ->whereBetween('created_at', [$from, $to])
+            ->whereBetween('donation_date', [$from, $to])
             ->with('donor')
-            ->orderBy('created_at', 'desc')
+            ->orderBy('donation_date', 'desc')
+            ->get()
+            ->map(fn ($d) => [
+                'id' => $d->id,
+                'donation_date' => $d->donation_date?->format('Y-m-d'),
+                'donor_name' => $d->donor->full_name ?? 'N/A',
+                'blood_group' => $d->blood_group,
+                'phone' => $d->donor->phone ?? 'N/A',
+                'quantity' => $d->quantity,
+                'status' => $d->status,
+            ]);
+
+        $totalDonations = $donations->count();
+        $totalUnits = $donations->sum('quantity');
+        $uniqueDonors = DonationHistory::where('bank_id', $bank->id)
+            ->whereBetween('donation_date', [$from, $to])
+            ->distinct('donor_id')
+            ->count('donor_id');
+        $avgUnits = $totalDonations > 0 ? round($totalUnits / $totalDonations, 1) : 0;
+
+        $groupDistribution = DonationHistory::where('bank_id', $bank->id)
+            ->whereBetween('donation_date', [$from, $to])
+            ->selectRaw('blood_group, COUNT(*) as count, SUM(quantity) as total_units')
+            ->groupBy('blood_group')
+            ->orderBy('blood_group')
             ->get();
 
-        $requests = BloodRequest::where('bank_id', $bank->id)
-            ->whereBetween('created_at', [$from, $to])
-            ->with('seeker')
-            ->orderBy('created_at', 'desc')
+        $monthlyTrends = DonationHistory::where('bank_id', $bank->id)
+            ->whereBetween('donation_date', [$from, $to])
+            ->selectRaw("DATE_FORMAT(donation_date, '%Y-%m') as month, SUM(quantity) as total_units")
+            ->groupBy('month')
+            ->orderBy('month')
             ->get();
 
         return response()->json([
             'period' => ['from' => $from, 'to' => $to],
             'donations' => $donations,
-            'requests' => $requests,
-            'total_donations' => $donations->count(),
-            'total_requests' => $requests->count(),
+            'total_donations' => $totalDonations,
+            'total_units' => $totalUnits,
+            'unique_donors' => $uniqueDonors,
+            'avg_units' => $avgUnits,
+            'group_distribution' => $groupDistribution,
+            'monthly_trends' => $monthlyTrends,
         ]);
     }
 }

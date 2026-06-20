@@ -11,6 +11,7 @@ class BloodRequest extends Model
 
     protected $fillable = [
         'seeker_id', 'bank_id', 'blood_group', 'quantity',
+        'patient_name', 'patient_age', 'hospital_name', 'urgency',
         'reason', 'status', 'requested_date', 'fulfilled_date',
     ];
 
@@ -20,6 +21,7 @@ class BloodRequest extends Model
             'requested_date' => 'datetime',
             'fulfilled_date' => 'datetime',
             'quantity' => 'integer',
+            'patient_age' => 'integer',
         ];
     }
 

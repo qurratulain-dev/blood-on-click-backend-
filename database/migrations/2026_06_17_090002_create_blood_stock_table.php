@@ -13,6 +13,7 @@ return new class extends Migration
             $table->foreignId('bank_id')->constrained('blood_banks')->cascadeOnDelete();
             $table->string('blood_group');
             $table->integer('quantity')->default(0);
+            $table->unique(['bank_id', 'blood_group'], 'unique_bank_blood');
             $table->timestamps();
         });
     }

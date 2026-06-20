@@ -17,6 +17,7 @@ return new class extends Migration
             $table->text('address');
             $table->integer('age');
             $table->decimal('weight', 5, 2);
+            $table->date('last_donation_date')->nullable()->after('weight');
             $table->enum('gender', ['Male', 'Female', 'Other']);
             $table->enum('status', ['available', 'not_available'])->default('available');
             $table->decimal('latitude', 10, 7)->nullable();

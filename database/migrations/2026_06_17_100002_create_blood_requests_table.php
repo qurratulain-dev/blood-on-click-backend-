@@ -14,6 +14,10 @@ return new class extends Migration
             $table->foreignId('bank_id')->nullable()->constrained('blood_banks')->nullOnDelete();
             $table->string('blood_group');
             $table->integer('quantity');
+            $table->string('patient_name')->nullable()->after('quantity');
+            $table->integer('patient_age')->nullable()->after('patient_name');
+            $table->string('hospital_name')->nullable()->after('patient_age');
+            $table->enum('urgency', ['normal', 'emergency'])->default('normal')->after('hospital_name');
             $table->text('reason')->nullable();
             $table->enum('status', ['pending', 'approved', 'rejected', 'fulfilled'])->default('pending');
             $table->timestamp('requested_date')->nullable();

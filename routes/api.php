@@ -51,8 +51,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/donations', [DonorController::class, 'createDonation']);
         Route::get('/medical-reports', [DonorController::class, 'medicalReports']);
         Route::post('/medical-reports', [DonorController::class, 'uploadMedicalReport']);
+        Route::post('/donations/{donation}/upload-report', [DonorController::class, 'uploadDonationReport']);
         Route::get('/notifications', [DonorController::class, 'notifications']);
+        Route::put('/notifications/read-all', [DonorController::class, 'markAllNotificationsRead']);
         Route::put('/notifications/{notification}/read', [DonorController::class, 'markNotificationRead']);
+        Route::delete('/notifications/{notification}', [DonorController::class, 'deleteNotification']);
     });
 
     // ==================== SEEKER ROUTES ====================
@@ -65,7 +68,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/requests', [SeekerController::class, 'requests']);
         Route::post('/requests', [SeekerController::class, 'createRequest']);
         Route::get('/notifications', [SeekerController::class, 'notifications']);
+        Route::put('/notifications/read-all', [SeekerController::class, 'markAllNotificationsRead']);
         Route::put('/notifications/{notification}/read', [SeekerController::class, 'markNotificationRead']);
+        Route::delete('/notifications/{notification}', [SeekerController::class, 'deleteNotification']);
     });
 
     // ==================== ADMIN ROUTES ====================

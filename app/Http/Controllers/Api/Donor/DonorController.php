@@ -27,6 +27,7 @@ class DonorController extends Controller
 
         $totalDonations = DonationHistory::where('donor_id', $donorId)->count();
         $completedDonations = DonationHistory::where('donor_id', $donorId)->where('status', 'completed')->count();
+        $pendingDonations = DonationHistory::where('donor_id', $donorId)->where('status', 'pending')->count();
         $totalUnits = DonationHistory::where('donor_id', $donorId)->sum('quantity');
 
         $lastDonation = DonationHistory::where('donor_id', $donorId)
@@ -60,6 +61,7 @@ class DonorController extends Controller
         return response()->json([
             'total_donations' => $totalDonations,
             'completed_donations' => $completedDonations,
+            'pending_donations' => $pendingDonations,
             'total_units_donated' => $totalUnits,
             'next_eligible_date' => $nextEligibleDate,
             'recent_donations' => $recentDonations,
@@ -132,8 +134,24 @@ class DonorController extends Controller
         $donor = $this->getDonor($request);
         $donations = DonationHistory::where('donor_id', $donor->id)
             ->with('bank')
-            ->orderBy('created_at', 'desc')
-            ->get();
+            ->orderBy('donation_date', 'desc')
+            ->get()
+            ->map(fn ($d) => [
+                'id' => $d->id,
+                'donor_id' => $d->donor_id,
+                'bank_id' => $d->bank_id,
+                'bank_name' => $d->bank->bank_name ?? 'N/A',
+                'bank_address' => $d->bank->address ?? 'N/A',
+                'blood_group' => $d->blood_group,
+                'quantity' => $d->quantity,
+                'status' => $d->status,
+                'donation_date' => $d->donation_date?->format('Y-m-d'),
+                'donation_date_formatted' => $d->donation_date?->format('d M Y'),
+                'medical_report_path' => $d->medical_report_path,
+                'medical_report_url' => $d->medical_report_path ? url('storage/' . $d->medical_report_path) : null,
+                'notes' => $d->notes,
+                'created_at' => $d->created_at?->format('Y-m-d h:i A'),
+            ]);
 
         return response()->json($donations);
     }
@@ -145,7 +163,8 @@ class DonorController extends Controller
         $validated = $request->validate([
             'bank_id' => 'required|exists:blood_banks,id',
             'blood_group' => ['required', Rule::in(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'])],
-            'quantity' => 'required|integer|min:1',
+            'quantity' => 'required|integer|min:1|max:2',
+            'donation_date' => 'required|date',
             'notes' => 'nullable|string',
         ]);
 
@@ -154,6 +173,7 @@ class DonorController extends Controller
             'bank_id' => $validated['bank_id'],
             'blood_group' => $validated['blood_group'],
             'quantity' => $validated['quantity'],
+            'donation_date' => $validated['donation_date'],
             'status' => 'pending',
             'notes' => $validated['notes'] ?? null,
         ]);
@@ -166,7 +186,7 @@ class DonorController extends Controller
         ]);
 
         return response()->json([
-            'message' => 'Donation request submitted',
+            'message' => 'Donation request submitted successfully! Waiting for admin verification.',
             'donation' => $donation,
         ], 201);
     }
@@ -206,6 +226,33 @@ class DonorController extends Controller
         ], 201);
     }
 
+    public function uploadDonationReport(Request $request, DonationHistory $donation): JsonResponse
+    {
+        $donor = $this->getDonor($request);
+
+        if ($donation->donor_id !== $donor->id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        if ($donation->status !== 'completed') {
+            return response()->json(['message' => 'Can only upload report for completed donations'], 422);
+        }
+
+        $validated = $request->validate([
+            'file' => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
+        ]);
+
+        $path = $request->file('file')->store('donation-reports', 'public');
+
+        $donation->update(['medical_report_path' => $path]);
+
+        return response()->json([
+            'message' => 'Medical report uploaded for donation',
+            'donation_id' => $donation->id,
+            'medical_report_url' => url('storage/' . $path),
+        ], 201);
+    }
+
     public function notifications(Request $request): JsonResponse
     {
         $donor = $this->getDonor($request);
@@ -228,5 +275,30 @@ class DonorController extends Controller
         $notification->update(['is_read' => true]);
 
         return response()->json(['message' => 'Notification marked as read']);
+    }
+
+    public function markAllNotificationsRead(Request $request): JsonResponse
+    {
+        $donor = $this->getDonor($request);
+
+        Notification::where('user_type', 'donor')
+            ->where('user_id', $donor->id)
+            ->where('is_read', false)
+            ->update(['is_read' => true]);
+
+        return response()->json(['message' => 'All notifications marked as read']);
+    }
+
+    public function deleteNotification(Request $request, Notification $notification): JsonResponse
+    {
+        $donor = $this->getDonor($request);
+
+        if ($notification->user_type !== 'donor' || $notification->user_id !== $donor->id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $notification->delete();
+
+        return response()->json(['message' => 'Notification deleted']);
     }
 }
