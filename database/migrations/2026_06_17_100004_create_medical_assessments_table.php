@@ -14,10 +14,10 @@ return new class extends Migration
             $table->date('assessment_date');
             $table->string('blood_pressure', 20)->nullable();
             $table->decimal('hemoglobin', 4, 1)->nullable();
-            $table->decimal('temperature', 4, 1)->nullable()->after('hemoglobin');
-            $table->integer('pulse')->nullable()->after('temperature');
-            $table->decimal('weight', 5, 1)->nullable()->after('pulse');
-            $table->foreignId('assessed_by')->nullable()->constrained('users')->nullOnDelete()->after('weight');
+            $table->decimal('temperature', 4, 1)->nullable();
+            $table->integer('pulse')->nullable();
+            $table->decimal('weight', 5, 1)->nullable();
+            $table->foreignId('assessed_by')->nullable()->constrained('users')->nullOnDelete();
             $table->boolean('is_eligible')->default(false);
             $table->text('notes')->nullable();
             $table->timestamps();

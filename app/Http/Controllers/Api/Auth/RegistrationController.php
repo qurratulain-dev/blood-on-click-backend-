@@ -76,8 +76,6 @@ class RegistrationController extends Controller
                 default => null,
             };
 
-            $token = $user->createToken('auth-token')->plainTextToken;
-
             $role = $user->getRoleNames()->first();
             $permissions = $user->getAllPermissions()->pluck('name');
 
@@ -88,7 +86,6 @@ class RegistrationController extends Controller
                 }),
                 'role' => $role,
                 'permissions' => $permissions,
-                'token' => $token,
             ];
         });
 

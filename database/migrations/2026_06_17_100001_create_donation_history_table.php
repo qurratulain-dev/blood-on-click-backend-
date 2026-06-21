@@ -17,7 +17,7 @@ return new class extends Migration
             $table->enum('status', ['pending', 'approved', 'rejected', 'completed'])->default('pending');
             $table->timestamp('donation_date')->nullable();
             $table->text('notes')->nullable();
-            $table->string('medical_report_path')->nullable()->after('notes');
+            $table->string('medical_report_path')->nullable();
             $table->timestamps();
         });
     }

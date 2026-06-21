@@ -86,7 +86,7 @@ class DonorController extends Controller
             'phone' => 'sometimes|string|max:20',
             'address' => 'sometimes|string',
             'age' => 'sometimes|integer|min:18|max:65',
-            'weight' => 'sometimes|numeric|min:50',
+            'weight' => 'sometimes|numeric|min:30',
             'gender' => ['sometimes', Rule::in(['Male', 'Female', 'Other'])],
             'blood_group' => ['sometimes', Rule::in(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'])],
             'status' => ['sometimes', Rule::in(['available', 'not_available'])],
@@ -123,7 +123,11 @@ class DonorController extends Controller
         }
 
         if ($validated['name'] ?? null) {
-            $query->where('bank_name', 'like', '%' . $validated['name'] . '%');
+            $term = $validated['name'];
+            $query->where(function ($q) use ($term) {
+                $q->where('bank_name', 'like', '%' . $term . '%')
+                  ->orWhere('address', 'like', '%' . $term . '%');
+            });
         }
 
         return response()->json($query->get());
@@ -150,6 +154,7 @@ class DonorController extends Controller
                 'medical_report_path' => $d->medical_report_path,
                 'medical_report_url' => $d->medical_report_path ? url('storage/' . $d->medical_report_path) : null,
                 'notes' => $d->notes,
+                'admin_message' => $d->admin_message,
                 'created_at' => $d->created_at?->format('Y-m-d h:i A'),
             ]);
 

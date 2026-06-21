@@ -76,7 +76,7 @@ class BloodBankController extends Controller
         $validated = $request->validate([
             'bank_name' => 'sometimes|string|max:255',
             'phone' => 'sometimes|string|max:20',
-            'address' => 'sometimes|string',
+            'address' => 'sometimes|string|max:1000',
             'registration_number' => 'sometimes|string|max:255',
             'license_number' => 'nullable|string|max:255',
             'latitude' => 'nullable|numeric',

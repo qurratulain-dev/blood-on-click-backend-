@@ -254,6 +254,8 @@ class UserManagementController extends Controller
             'donation_date' => $donation->donation_date?->format('Y-m-d'),
             'status' => $donation->status,
             'medical_report_path' => $donation->medical_report_path,
+            'medical_report_url' => $donation->medical_report_path ? asset('storage/' . $donation->medical_report_path) : null,
+            'has_medical_report' => !is_null($donation->medical_report_path),
             'latest_assessment' => $latestAssessment ? [
                 'blood_pressure' => $latestAssessment->blood_pressure,
                 'hemoglobin' => $latestAssessment->hemoglobin,
@@ -350,6 +352,7 @@ class UserManagementController extends Controller
                 'quantity' => $d->quantity,
                 'donation_date' => $d->donation_date?->format('Y-m-d'),
                 'status' => $d->status,
+                'admin_message' => $d->admin_message,
                 'has_medical_report' => !is_null($d->medical_report_path),
                 'medical_report_url' => $d->medical_report_path ? asset('storage/' . $d->medical_report_path) : null,
                 'created_at' => $d->created_at?->format('Y-m-d h:i A'),
@@ -371,16 +374,20 @@ class UserManagementController extends Controller
         ]);
     }
 
-    public function verifyDonation(int $id): JsonResponse
+    public function verifyDonation(Request $request, int $id): JsonResponse
     {
-        return DB::transaction(function () use ($id) {
+        return DB::transaction(function () use ($request, $id) {
             $donation = DonationHistory::with('donor')->findOrFail($id);
 
             if ($donation->status !== 'pending') {
                 return response()->json(['message' => 'Only pending donations can be verified'], 422);
             }
 
-            $donation->update(['status' => 'completed']);
+            $adminMessage = $request->input('admin_message');
+            $donation->update([
+                'status' => 'completed',
+                'admin_message' => $adminMessage,
+            ]);
 
             $stock = BloodStock::where('bank_id', $donation->bank_id)
                 ->where('blood_group', $donation->blood_group)
@@ -410,10 +417,14 @@ class UserManagementController extends Controller
         });
     }
 
-    public function rejectDonation(int $id): JsonResponse
+    public function rejectDonation(Request $request, int $id): JsonResponse
     {
         $donation = DonationHistory::findOrFail($id);
-        $donation->update(['status' => 'cancelled']);
+        $adminMessage = $request->input('admin_message');
+        $donation->update([
+            'status' => 'cancelled',
+            'admin_message' => $adminMessage,
+        ]);
 
         Notification::create([
             'user_type' => 'donor',

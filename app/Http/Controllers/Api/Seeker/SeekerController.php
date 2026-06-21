@@ -145,7 +145,11 @@ class SeekerController extends Controller
         }
 
         if ($validated['name'] ?? null) {
-            $query->where('bank_name', 'like', '%' . $validated['name'] . '%');
+            $term = $validated['name'];
+            $query->where(function ($q) use ($term) {
+                $q->where('bank_name', 'like', '%' . $term . '%')
+                  ->orWhere('address', 'like', '%' . $term . '%');
+            });
         }
 
         return response()->json($query->get());

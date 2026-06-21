@@ -72,7 +72,7 @@ class RoleAndPermissionSeeder extends Seeder
         $admin = User::create([
             'name' => 'Quratulain',
             'username' => 'dev.quratulain',
-            'email' => 'dev.quratulain',
+            'email' => 'dev.quratulain@gmail.com',
             'password' => bcrypt('Ainaa*220'),
             'is_active' => true,
         ]);
