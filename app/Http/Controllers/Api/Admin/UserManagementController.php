@@ -7,11 +7,9 @@ use App\Models\BloodBank;
 use App\Models\BloodRequest;
 use App\Models\BloodStock;
 use App\Models\DonationHistory;
-use App\Models\Donor;
+use App\Models\User;
 use App\Models\MedicalAssessment;
 use App\Models\Notification;
-use App\Models\Seeker;
-use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -24,17 +22,15 @@ class UserManagementController extends Controller
     public function counts(): JsonResponse
     {
         return response()->json([
-            'donors' => Donor::count(),
+            'users' => User::role('User')->count(),
             'blood_banks' => BloodBank::count(),
-            'seekers' => Seeker::count(),
         ]);
     }
 
     public function dashboard(): JsonResponse
     {
-        $totalDonors = Donor::count();
+        $totalUsers = User::role('User')->count();
         $totalBanks = BloodBank::count();
-        $totalSeekers = Seeker::count();
         $totalRequests = BloodRequest::count();
         $pendingRequests = BloodRequest::where('status', 'pending')->count();
 
@@ -44,14 +40,14 @@ class UserManagementController extends Controller
             ->orderBy('blood_group')
             ->get();
 
-        // Recent 5 donations with donor & bank info
-        $recentDonations = DonationHistory::with(['donor', 'bank'])
+        // Recent 5 donations with user & bank info
+        $recentDonations = DonationHistory::with(['user', 'bank'])
             ->orderBy('donation_date', 'desc')
             ->limit(5)
             ->get()
             ->map(fn ($d) => [
                 'id' => $d->id,
-                'donor_name' => $d->donor->full_name ?? 'N/A',
+                'user_name' => $d->user->full_name ?? 'N/A',
                 'blood_group' => $d->blood_group,
                 'bank_name' => $d->bank->bank_name ?? 'N/A',
                 'donation_date' => $d->donation_date?->format('Y-m-d'),
@@ -60,9 +56,8 @@ class UserManagementController extends Controller
             ]);
 
         return response()->json([
-            'donors' => $totalDonors,
+            'users' => $totalUsers,
             'blood_banks' => $totalBanks,
-            'seekers' => $totalSeekers,
             'total_requests' => $totalRequests,
             'pending_requests' => $pendingRequests,
             'stock_summary' => $stockSummary,
@@ -70,7 +65,7 @@ class UserManagementController extends Controller
         ]);
     }
 
-    public function addDonor(Request $request): JsonResponse
+    public function addUser(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'full_name' => 'required|string|max:255',
@@ -78,9 +73,10 @@ class UserManagementController extends Controller
             'password' => 'required|string|min:8',
             'phone' => 'required|string|max:20',
             'blood_group' => ['required', Rule::in(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'])],
+            'city' => 'nullable|string|max:255',
             'address' => 'required|string',
-            'age' => 'required|integer|min:18|max:65',
-            'weight' => 'required|numeric|min:50',
+            'age' => 'required|integer|min:18|max:100',
+            'weight' => 'required|numeric|min:30',
             'gender' => ['required', Rule::in(['Male', 'Female', 'Other'])],
             'status' => ['sometimes', Rule::in(['available', 'not_available'])],
             'latitude' => 'nullable|numeric',
@@ -93,14 +89,10 @@ class UserManagementController extends Controller
                 'username' => $this->generateUsername($validated['full_name']),
                 'email' => $validated['email'],
                 'password' => Hash::make($validated['password']),
-            ]);
-            $user->assignRole('Donor');
-
-            $donor = Donor::create([
-                'user_id' => $user->id,
                 'full_name' => $validated['full_name'],
                 'phone' => $validated['phone'],
                 'blood_group' => $validated['blood_group'],
+                'city' => $validated['city'] ?? null,
                 'address' => $validated['address'],
                 'age' => $validated['age'],
                 'weight' => $validated['weight'],
@@ -109,17 +101,18 @@ class UserManagementController extends Controller
                 'latitude' => $validated['latitude'] ?? null,
                 'longitude' => $validated['longitude'] ?? null,
             ]);
+            $user->assignRole('User');
 
             Notification::create([
-                'user_type' => 'donor',
-                'user_id' => $donor->id,
+                'user_type' => 'user',
+                'user_id' => $user->id,
                 'title' => 'Welcome to Blood on Click',
-                'message' => 'Your account has been created by admin. You can now login and start donating blood.',
+                'message' => 'Your account has been created by admin. You can now login, donate blood, and request blood.',
             ]);
 
             return response()->json([
-                'message' => 'Donor added successfully',
-                'donor' => $donor,
+                'message' => 'User added successfully',
+                'user' => $user,
             ], 201);
         });
     }
@@ -183,70 +176,26 @@ class UserManagementController extends Controller
         });
     }
 
-    public function addSeeker(Request $request): JsonResponse
-    {
-        $validated = $request->validate([
-            'full_name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:8',
-            'phone' => 'required|string|max:20',
-            'address' => 'required|string',
-            'latitude' => 'nullable|numeric',
-            'longitude' => 'nullable|numeric',
-        ]);
-
-        return DB::transaction(function () use ($validated) {
-            $user = User::create([
-                'name' => $validated['full_name'],
-                'username' => $this->generateUsername($validated['full_name']),
-                'email' => $validated['email'],
-                'password' => Hash::make($validated['password']),
-            ]);
-            $user->assignRole('Seeker');
-
-            $seeker = Seeker::create([
-                'user_id' => $user->id,
-                'full_name' => $validated['full_name'],
-                'phone' => $validated['phone'],
-                'address' => $validated['address'],
-                'latitude' => $validated['latitude'] ?? null,
-                'longitude' => $validated['longitude'] ?? null,
-            ]);
-
-            Notification::create([
-                'user_type' => 'seeker',
-                'user_id' => $seeker->id,
-                'title' => 'Welcome to Blood on Click',
-                'message' => 'Your account has been created by admin. You can now login and request blood.',
-            ]);
-
-            return response()->json([
-                'message' => 'Seeker added successfully',
-                'seeker' => $seeker,
-            ], 201);
-        });
-    }
-
     public function donationDetails(int $id): JsonResponse
     {
-        $donation = DonationHistory::with(['donor', 'bank'])
+        $donation = DonationHistory::with(['user', 'bank'])
             ->findOrFail($id);
 
-        $latestAssessment = MedicalAssessment::where('donor_id', $donation->donor_id)
+        $latestAssessment = MedicalAssessment::where('user_id', $donation->user_id)
             ->orderBy('assessment_date', 'desc')
             ->first();
 
         return response()->json([
             'id' => $donation->id,
-            'donor_id' => $donation->donor_id,
-            'donor_name' => $donation->donor->full_name ?? 'N/A',
-            'donor_email' => $donation->donor->user->email ?? 'N/A',
-            'donor_phone' => $donation->donor->phone ?? 'N/A',
+            'user_id' => $donation->user_id,
+            'donor_name' => $donation->user->full_name ?? 'N/A',
+            'donor_email' => $donation->user->email ?? 'N/A',
+            'donor_phone' => $donation->user->phone ?? 'N/A',
             'blood_group' => $donation->blood_group,
-            'age' => $donation->donor->age,
-            'weight' => $donation->donor->weight,
-            'gender' => $donation->donor->gender,
-            'donor_address' => $donation->donor->address,
+            'age' => $donation->user->age,
+            'weight' => $donation->user->weight,
+            'gender' => $donation->user->gender,
+            'donor_address' => $donation->user->address,
             'bank_name' => $donation->bank->bank_name ?? 'N/A',
             'bank_address' => $donation->bank->address ?? 'N/A',
             'bank_phone' => $donation->bank->phone ?? 'N/A',
@@ -270,10 +219,10 @@ class UserManagementController extends Controller
             'donation_id' => 'required|exists:donation_history,id',
         ]);
 
-        $donation = DonationHistory::with(['donor.user', 'bank'])
+        $donation = DonationHistory::with(['user', 'bank'])
             ->findOrFail($validated['donation_id']);
 
-        $latestAssessment = MedicalAssessment::where('donor_id', $donation->donor_id)
+        $latestAssessment = MedicalAssessment::where('user_id', $donation->user_id)
             ->orderBy('assessment_date', 'desc')
             ->first();
 
@@ -284,8 +233,8 @@ class UserManagementController extends Controller
         $hemoglobin = $latestAssessment?->hemoglobin ? $latestAssessment->hemoglobin . ' g/dL' : 'Not recorded';
         $bloodPressure = $latestAssessment?->blood_pressure ?? 'Not recorded';
         $eligibility = $latestAssessment ? ($latestAssessment->is_eligible ? 'Eligible' : 'Not Eligible') : 'Eligible';
-        $weight = $latestAssessment?->donor->weight ?? $donation->donor->weight ?? 'N/A';
-        $gender = $donation->donor->gender ?? 'N/A';
+        $weight = $latestAssessment?->weight ?? $donation->user->weight ?? 'N/A';
+        $gender = $donation->user->gender ?? 'N/A';
 
         $nextEligible = $donation->donation_date?->copy()->addDays(90)->format('d/m/Y') ?? 'N/A';
 
@@ -316,8 +265,8 @@ class UserManagementController extends Controller
         $donation->update(['medical_report_path' => $relativePath]);
 
         Notification::create([
-            'user_type' => 'donor',
-            'user_id' => $donation->donor_id,
+            'user_type' => 'user',
+            'user_id' => $donation->user_id,
             'title' => 'Medical Report Generated',
             'message' => "Your medical report for donation on {$donationDate} has been generated. You can view it in your donation history.",
         ]);
@@ -332,7 +281,7 @@ class UserManagementController extends Controller
     {
         $status = $request->query('status');
 
-        $query = DonationHistory::with(['donor', 'bank']);
+        $query = DonationHistory::with(['user', 'bank']);
 
         if ($status && in_array($status, ['pending', 'completed', 'cancelled'])) {
             $query->where('status', $status);
@@ -342,10 +291,10 @@ class UserManagementController extends Controller
             ->get()
             ->map(fn ($d) => [
                 'id' => $d->id,
-                'donor_id' => $d->donor_id,
-                'donor_name' => $d->donor->full_name ?? 'N/A',
-                'donor_email' => $d->donor->user->email ?? 'N/A',
-                'donor_phone' => $d->donor->phone ?? 'N/A',
+                'user_id' => $d->user_id,
+                'donor_name' => $d->user->full_name ?? 'N/A',
+                'donor_email' => $d->user->email ?? 'N/A',
+                'donor_phone' => $d->user->phone ?? 'N/A',
                 'bank_id' => $d->bank_id,
                 'bank_name' => $d->bank->bank_name ?? 'N/A',
                 'blood_group' => $d->blood_group,
@@ -377,7 +326,7 @@ class UserManagementController extends Controller
     public function verifyDonation(Request $request, int $id): JsonResponse
     {
         return DB::transaction(function () use ($request, $id) {
-            $donation = DonationHistory::with('donor')->findOrFail($id);
+            $donation = DonationHistory::with('user')->findOrFail($id);
 
             if ($donation->status !== 'pending') {
                 return response()->json(['message' => 'Only pending donations can be verified'], 422);
@@ -387,6 +336,7 @@ class UserManagementController extends Controller
             $donation->update([
                 'status' => 'completed',
                 'admin_message' => $adminMessage,
+                'donation_date' => now(),
             ]);
 
             $stock = BloodStock::where('bank_id', $donation->bank_id)
@@ -403,12 +353,12 @@ class UserManagementController extends Controller
                 ]);
             }
 
-            $donation->donor->update(['status' => 'available']);
+            $donation->user->update(['status' => 'available']);
 
             $message = "Thank you for your donation! Your donation of {$donation->quantity} unit(s) of {$donation->blood_group} blood has been verified.";
             Notification::create([
-                'user_type' => 'donor',
-                'user_id' => $donation->donor_id,
+                'user_type' => 'user',
+                'user_id' => $donation->user_id,
                 'title' => 'Donation Verified',
                 'message' => $message,
             ]);
@@ -427,8 +377,8 @@ class UserManagementController extends Controller
         ]);
 
         Notification::create([
-            'user_type' => 'donor',
-            'user_id' => $donation->donor_id,
+            'user_type' => 'user',
+            'user_id' => $donation->user_id,
             'title' => 'Donation Rejected',
             'message' => 'Your donation record has been rejected. Please contact admin.',
         ]);
@@ -457,8 +407,8 @@ class UserManagementController extends Controller
         $donation->update(['medical_report_path' => $path]);
 
         Notification::create([
-            'user_type' => 'donor',
-            'user_id' => $donation->donor_id,
+            'user_type' => 'user',
+            'user_id' => $donation->user_id,
             'title' => 'Medical Report Uploaded',
             'message' => 'Your medical report has been uploaded by admin.',
         ]);
@@ -474,15 +424,14 @@ class UserManagementController extends Controller
     public function sendRecommendation(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'user_type' => ['required', Rule::in(['donor', 'seeker'])],
-            'user_id' => 'required|integer',
+            'user_id' => 'required|exists:users,id',
             'bank_id' => 'required|exists:blood_banks,id',
         ]);
 
         $bank = BloodBank::findOrFail($validated['bank_id']);
 
         Notification::create([
-            'user_type' => $validated['user_type'],
+            'user_type' => 'user',
             'user_id' => $validated['user_id'],
             'title' => 'Blood Bank Recommendation',
             'message' => "We recommend you to visit {$bank->bank_name} for your blood needs.",
@@ -493,26 +442,27 @@ class UserManagementController extends Controller
 
     public function recommendationData(): JsonResponse
     {
-        $donors = Donor::select('id', 'full_name', 'blood_group', 'address')->orderBy('full_name')->get();
-        $seekers = Seeker::select('id', 'full_name', 'address')->orderBy('full_name')->get();
+        $users = User::role('User')
+            ->select('id', 'full_name', 'blood_group', 'address', 'city')
+            ->orderBy('full_name')
+            ->get();
         $banks = BloodBank::where('status', 'active')
             ->select('id', 'bank_name', 'address')
             ->orderBy('bank_name')
             ->get();
 
         return response()->json([
-            'donors' => $donors,
-            'seekers' => $seekers,
+            'users' => $users,
             'banks' => $banks,
         ]);
     }
 
-    // ==================== DONOR ASSESSMENT HISTORY ====================
+    // ==================== ASSESSMENT HISTORY ====================
 
-    public function donorAssessmentHistory(int $donorId): JsonResponse
+    public function userAssessmentHistory(int $userId): JsonResponse
     {
         $assessments = MedicalAssessment::with('assessedBy')
-            ->where('donor_id', $donorId)
+            ->where('user_id', $userId)
             ->orderBy('assessment_date', 'desc')
             ->get()
             ->map(fn ($a) => [
@@ -534,19 +484,19 @@ class UserManagementController extends Controller
 
     public function users(): JsonResponse
     {
-        $donors = Donor::with('user')
+        $users = User::role('User')
             ->orderBy('created_at', 'desc')
             ->get()
-            ->map(fn ($d) => [
-                'id' => $d->id,
-                'full_name' => $d->full_name,
-                'email' => $d->user?->email ?? 'N/A',
-                'phone' => $d->phone,
-                'blood_group' => $d->blood_group,
-                'age' => $d->age,
-                'weight' => $d->weight,
-                'status' => $d->status,
-                'user_type' => 'donor',
+            ->map(fn ($u) => [
+                'id' => $u->id,
+                'full_name' => $u->full_name ?? $u->name,
+                'email' => $u->email ?? 'N/A',
+                'phone' => $u->phone,
+                'blood_group' => $u->blood_group,
+                'age' => $u->age,
+                'weight' => $u->weight,
+                'status' => $u->status,
+                'user_type' => 'user',
             ]);
 
         $banks = BloodBank::with('user')
@@ -562,57 +512,44 @@ class UserManagementController extends Controller
                 'user_type' => 'bank',
             ]);
 
-        $seekers = Seeker::with('user')
-            ->orderBy('created_at', 'desc')
-            ->get()
-            ->map(fn ($s) => [
-                'id' => $s->id,
-                'full_name' => $s->full_name,
-                'email' => $s->user?->email ?? 'N/A',
-                'phone' => $s->phone,
-                'address' => $s->address,
-                'user_type' => 'seeker',
-            ]);
-
         return response()->json([
-            'donors' => $donors,
+            'users' => $users,
             'blood_banks' => $banks,
-            'seekers' => $seekers,
             'counts' => [
-                'donors' => $donors->count(),
+                'users' => $users->count(),
                 'banks' => $banks->count(),
-                'seekers' => $seekers->count(),
             ],
         ]);
     }
 
-    public function updateDonor(Request $request, int $id): JsonResponse
+    public function updateUser(Request $request, int $id): JsonResponse
     {
-        $donor = Donor::findOrFail($id);
+        $user = User::findOrFail($id);
 
         $validated = $request->validate([
             'full_name' => 'sometimes|string|max:255',
             'phone' => 'sometimes|string|max:20',
             'blood_group' => ['sometimes', Rule::in(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'])],
+            'city' => 'sometimes|string|max:255',
             'address' => 'sometimes|string',
-            'age' => 'sometimes|integer|min:18|max:65',
-            'weight' => 'sometimes|numeric|min:50',
+            'age' => 'sometimes|integer|min:18|max:100',
+            'weight' => 'sometimes|numeric|min:30',
             'gender' => ['sometimes', Rule::in(['Male', 'Female', 'Other'])],
             'status' => ['sometimes', Rule::in(['available', 'not_available'])],
             'latitude' => 'nullable|numeric',
             'longitude' => 'nullable|numeric',
         ]);
 
-        $donor->update($validated);
+        $user->update($validated);
 
         Notification::create([
-            'user_type' => 'donor',
-            'user_id' => $donor->id,
+            'user_type' => 'user',
+            'user_id' => $user->id,
             'title' => 'Profile Updated',
             'message' => 'Your profile has been updated by admin.',
         ]);
 
-        return response()->json(['message' => 'Donor updated successfully!', 'donor' => $donor]);
+        return response()->json(['message' => 'User updated successfully!', 'user' => $user]);
     }
 
     public function updateBloodBank(Request $request, int $id): JsonResponse
@@ -642,44 +579,15 @@ class UserManagementController extends Controller
         return response()->json(['message' => 'Blood Bank updated successfully!', 'bank' => $bank]);
     }
 
-    public function updateSeeker(Request $request, int $id): JsonResponse
-    {
-        $seeker = Seeker::findOrFail($id);
-
-        $validated = $request->validate([
-            'full_name' => 'sometimes|string|max:255',
-            'phone' => 'sometimes|string|max:20',
-            'address' => 'sometimes|string',
-            'latitude' => 'nullable|numeric',
-            'longitude' => 'nullable|numeric',
-        ]);
-
-        $seeker->update($validated);
-
-        Notification::create([
-            'user_type' => 'seeker',
-            'user_id' => $seeker->id,
-            'title' => 'Profile Updated',
-            'message' => 'Your profile has been updated by admin.',
-        ]);
-
-        return response()->json(['message' => 'Seeker updated successfully!', 'seeker' => $seeker]);
-    }
-
     public function deleteUser(string $type, int $id): JsonResponse
     {
         return DB::transaction(function () use ($type, $id) {
-            if ($type === 'donor') {
-                $record = Donor::findOrFail($id);
-                $record->user()?->delete();
+            if ($type === 'user') {
+                $record = User::findOrFail($id);
                 $record->delete();
             } elseif ($type === 'bank') {
                 $record = BloodBank::findOrFail($id);
-                $record->user()?->delete();
-                $record->delete();
-            } elseif ($type === 'seeker') {
-                $record = Seeker::findOrFail($id);
-                $record->user()?->delete();
+                $record->user?->delete();
                 $record->delete();
             } else {
                 return response()->json(['message' => 'Invalid type'], 422);
@@ -693,17 +601,17 @@ class UserManagementController extends Controller
 
     public function allRequests(): JsonResponse
     {
-        $requests = BloodRequest::with(['seeker', 'bank'])
+        $requests = BloodRequest::with(['user', 'bank'])
             ->orderBy('requested_date', 'desc')
             ->get()
             ->map(fn ($r) => [
                 'id' => $r->id,
-                'seeker_name' => $r->seeker->full_name ?? 'N/A',
+                'user_name' => $r->user->full_name ?? 'N/A',
                 'bank_name' => $r->bank->bank_name ?? 'N/A',
                 'blood_group' => $r->blood_group,
                 'quantity' => $r->quantity,
                 'reason' => $r->reason,
-                'urgency' => $r->reason === 'emergency' ? 'Emergency' : 'Normal',
+                'urgency' => $r->urgency === 'emergency' ? 'Emergency' : 'Normal',
                 'status' => $r->status,
                 'requested_date' => $r->requested_date?->format('Y-m-d'),
             ]);
@@ -722,6 +630,20 @@ class UserManagementController extends Controller
 
         if ($validated['status'] === 'fulfilled') {
             $bloodRequest->update(['fulfilled_date' => now()]);
+        } elseif ($validated['status'] === 'approved') {
+            $stock = BloodStock::where('bank_id', $bloodRequest->bank_id)
+                ->where('blood_group', $bloodRequest->blood_group)
+                ->first();
+            if ($stock && $stock->quantity >= $bloodRequest->quantity) {
+                $stock->decrement('quantity', $bloodRequest->quantity);
+            }
+
+            Notification::create([
+                'user_type' => 'user',
+                'user_id' => $bloodRequest->user_id,
+                'title' => 'Blood Request Approved',
+                'message' => "Your blood request for {$bloodRequest->quantity} unit(s) of {$bloodRequest->blood_group} has been approved.",
+            ]);
         }
 
         return response()->json(['message' => 'Request status updated to ' . $validated['status']]);

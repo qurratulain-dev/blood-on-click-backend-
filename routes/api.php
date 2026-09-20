@@ -6,8 +6,7 @@ use App\Http\Controllers\Api\Auth\LoginController;
 use App\Http\Controllers\Api\Auth\LogoutController;
 use App\Http\Controllers\Api\Auth\RegistrationController;
 use App\Http\Controllers\Api\BloodBank\BloodBankController;
-use App\Http\Controllers\Api\Donor\DonorController;
-use App\Http\Controllers\Api\Seeker\SeekerController;
+use App\Http\Controllers\Api\User\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -19,7 +18,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Current user with role, permissions, and profile
     Route::get('/user', function (Request $request) {
-        $user = $request->user()->load(['donor', 'bloodBank', 'seeker']);
+        $user = $request->user()->load('bloodBank');
         return response()->json([
             'user' => $user,
             'role' => $user->getRoleNames()->first(),
@@ -41,36 +40,24 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/reports', [BloodBankController::class, 'reports']);
     });
 
-    // ==================== DONOR ROUTES ====================
-    Route::middleware(['role:Donor'])->prefix('donor')->group(function () {
-        Route::get('/dashboard', [DonorController::class, 'dashboard']);
-        Route::get('/profile', [DonorController::class, 'profile']);
-        Route::put('/profile', [DonorController::class, 'updateProfile']);
-        Route::get('/banks', [DonorController::class, 'searchBanks']);
-        Route::get('/donations', [DonorController::class, 'donations']);
-        Route::post('/donations', [DonorController::class, 'createDonation']);
-        Route::get('/medical-reports', [DonorController::class, 'medicalReports']);
-        Route::post('/medical-reports', [DonorController::class, 'uploadMedicalReport']);
-        Route::post('/donations/{donation}/upload-report', [DonorController::class, 'uploadDonationReport']);
-        Route::get('/notifications', [DonorController::class, 'notifications']);
-        Route::put('/notifications/read-all', [DonorController::class, 'markAllNotificationsRead']);
-        Route::put('/notifications/{notification}/read', [DonorController::class, 'markNotificationRead']);
-        Route::delete('/notifications/{notification}', [DonorController::class, 'deleteNotification']);
-    });
-
-    // ==================== SEEKER ROUTES ====================
-    Route::middleware(['role:Seeker'])->prefix('seeker')->group(function () {
-        Route::get('/dashboard', [SeekerController::class, 'dashboard']);
-        Route::get('/profile', [SeekerController::class, 'profile']);
-        Route::put('/profile', [SeekerController::class, 'updateProfile']);
-        Route::get('/donors', [SeekerController::class, 'searchDonors']);
-        Route::get('/banks', [SeekerController::class, 'searchBanks']);
-        Route::get('/requests', [SeekerController::class, 'requests']);
-        Route::post('/requests', [SeekerController::class, 'createRequest']);
-        Route::get('/notifications', [SeekerController::class, 'notifications']);
-        Route::put('/notifications/read-all', [SeekerController::class, 'markAllNotificationsRead']);
-        Route::put('/notifications/{notification}/read', [SeekerController::class, 'markNotificationRead']);
-        Route::delete('/notifications/{notification}', [SeekerController::class, 'deleteNotification']);
+    // ==================== USER ROUTES (unified donor + seeker) ====================
+    Route::middleware(['role:User'])->prefix('user')->group(function () {
+        Route::get('/dashboard', [UserController::class, 'dashboard']);
+        Route::get('/profile', [UserController::class, 'profile']);
+        Route::put('/profile', [UserController::class, 'updateProfile']);
+        Route::get('/donors', [UserController::class, 'searchDonors']);
+        Route::get('/banks', [UserController::class, 'searchBanks']);
+        Route::get('/donations', [UserController::class, 'donations']);
+        Route::post('/donations', [UserController::class, 'createDonation']);
+        Route::get('/medical-reports', [UserController::class, 'medicalReports']);
+        Route::post('/medical-reports', [UserController::class, 'uploadMedicalReport']);
+        Route::post('/donations/{donation}/upload-report', [UserController::class, 'uploadDonationReport']);
+        Route::get('/requests', [UserController::class, 'requests']);
+        Route::post('/requests', [UserController::class, 'createRequest']);
+        Route::get('/notifications', [UserController::class, 'notifications']);
+        Route::put('/notifications/read-all', [UserController::class, 'markAllNotificationsRead']);
+        Route::put('/notifications/{notification}/read', [UserController::class, 'markNotificationRead']);
+        Route::delete('/notifications/{notification}', [UserController::class, 'deleteNotification']);
     });
 
     // ==================== ADMIN ROUTES ====================
@@ -79,7 +66,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/counts', [UserManagementController::class, 'counts']);
         Route::get('/assessments', [AssessmentController::class, 'index']);
         Route::post('/assessments', [AssessmentController::class, 'store']);
-        Route::get('/assessments/donor/{donorId}', [UserManagementController::class, 'donorAssessmentHistory']);
+        Route::get('/assessments/user/{userId}', [UserManagementController::class, 'userAssessmentHistory']);
         Route::get('/assessments/{assessment}', [AssessmentController::class, 'show']);
         Route::get('/assessment-donors', [AssessmentController::class, 'donors']);
         Route::post('/recommend-bank', [UserManagementController::class, 'sendRecommendation']);
@@ -92,14 +79,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/donations/{donation}/pending', [UserManagementController::class, 'moveToPending']);
         Route::post('/donations/upload-report', [UserManagementController::class, 'uploadMedicalReport']);
         Route::get('/users', [UserManagementController::class, 'users']);
-        Route::put('/donors/{donor}', [UserManagementController::class, 'updateDonor']);
+        Route::put('/users/{user}', [UserManagementController::class, 'updateUser']);
         Route::put('/blood-banks/{bloodBank}', [UserManagementController::class, 'updateBloodBank']);
-        Route::put('/seekers/{seeker}', [UserManagementController::class, 'updateSeeker']);
         Route::delete('/users/{type}/{id}', [UserManagementController::class, 'deleteUser']);
         Route::get('/requests', [UserManagementController::class, 'allRequests']);
         Route::put('/requests/{bloodRequest}/status', [UserManagementController::class, 'updateRequestStatus']);
-        Route::post('/add-donor', [UserManagementController::class, 'addDonor']);
+        Route::post('/add-user', [UserManagementController::class, 'addUser']);
         Route::post('/add-blood-bank', [UserManagementController::class, 'addBloodBank']);
-        Route::post('/add-seeker', [UserManagementController::class, 'addSeeker']);
     });
 });

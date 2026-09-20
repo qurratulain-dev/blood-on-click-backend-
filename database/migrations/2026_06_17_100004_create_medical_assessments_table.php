@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('medical_assessments', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('donor_id')->constrained('donors')->cascadeOnDelete();
+            $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
             $table->date('assessment_date');
             $table->string('blood_pressure', 20)->nullable();
             $table->decimal('hemoglobin', 4, 1)->nullable();

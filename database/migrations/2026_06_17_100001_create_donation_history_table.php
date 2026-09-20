@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('donation_history', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('donor_id')->constrained('donors')->cascadeOnDelete();
+            $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
             $table->foreignId('bank_id')->constrained('blood_banks')->cascadeOnDelete();
             $table->string('blood_group');
             $table->integer('quantity');

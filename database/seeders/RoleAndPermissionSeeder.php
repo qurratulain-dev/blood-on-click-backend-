@@ -21,18 +21,15 @@ class RoleAndPermissionSeeder extends Seeder
             'assessments.manage', 'assessments.create', 'assessments.view',
             'blood-banks.recommend',
 
-            // Donor
-            'donor.profile.view', 'donor.profile.edit',
-            'donor.donations.create', 'donor.donations.view',
+            // User (unified donor + seeker)
+            'user.profile.view', 'user.profile.edit',
+            'user.donations.create', 'user.donations.view',
+            'user.requests.create', 'user.requests.view',
 
             // Blood Bank
             'bank.profile.view', 'bank.profile.edit',
             'bank.stock.manage', 'bank.stock.view',
             'bank.donations.view',
-
-            // Seeker
-            'seeker.profile.view', 'seeker.profile.edit',
-            'seeker.requests.create', 'seeker.requests.view',
 
             // Common
             'notifications.view',
@@ -46,10 +43,11 @@ class RoleAndPermissionSeeder extends Seeder
         $adminRole = Role::create(['name' => 'Admin']);
         $adminRole->givePermissionTo(Permission::all());
 
-        $donorRole = Role::create(['name' => 'Donor']);
-        $donorRole->givePermissionTo([
-            'donor.profile.view', 'donor.profile.edit',
-            'donor.donations.create', 'donor.donations.view',
+        $userRole = Role::create(['name' => 'User']);
+        $userRole->givePermissionTo([
+            'user.profile.view', 'user.profile.edit',
+            'user.donations.create', 'user.donations.view',
+            'user.requests.create', 'user.requests.view',
             'notifications.view',
         ]);
 
@@ -58,13 +56,6 @@ class RoleAndPermissionSeeder extends Seeder
             'bank.profile.view', 'bank.profile.edit',
             'bank.stock.manage', 'bank.stock.view',
             'bank.donations.view',
-            'notifications.view',
-        ]);
-
-        $seekerRole = Role::create(['name' => 'Seeker']);
-        $seekerRole->givePermissionTo([
-            'seeker.profile.view', 'seeker.profile.edit',
-            'seeker.requests.create', 'seeker.requests.view',
             'notifications.view',
         ]);
 

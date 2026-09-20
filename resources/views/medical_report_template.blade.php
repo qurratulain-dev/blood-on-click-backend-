@@ -45,13 +45,13 @@
             <div class="donor-info">
                 <div class="section-title">DONOR INFORMATION</div>
                 <table class="info-table">
-                    <tr><td>Full Name</td><td><strong>{{ strtoupper($donation->donor->full_name ?? 'N/A') }}</strong></td></tr>
-                    <tr><td>Age</td><td>{{ $donation->donor->age ?? 'N/A' }} years</td></tr>
+                    <tr><td>Full Name</td><td><strong>{{ strtoupper($donation->user->full_name ?? 'N/A') }}</strong></td></tr>
+                    <tr><td>Age</td><td>{{ $donation->user->age ?? 'N/A' }} years</td></tr>
                     <tr><td>Gender</td><td>{{ $gender }}</td></tr>
                     <tr><td>Blood Group</td><td><strong>{{ $donation->blood_group }}</strong></td></tr>
-                    <tr><td>Contact Number</td><td>{{ $donation->donor->phone ?? 'N/A' }}</td></tr>
-                    <tr><td>Email Address</td><td>{{ $donation->donor->user->email ?? 'N/A' }}</td></tr>
-                    <tr><td>Address</td><td>{{ $donation->donor->address ?? 'N/A' }}</td></tr>
+                    <tr><td>Contact Number</td><td>{{ $donation->user->phone ?? 'N/A' }}</td></tr>
+                    <tr><td>Email Address</td><td>{{ $donation->user->email ?? 'N/A' }}</td></tr>
+                    <tr><td>Address</td><td>{{ $donation->user->address ?? 'N/A' }}</td></tr>
                 </table>
             </div>
             <div class="donation-info">

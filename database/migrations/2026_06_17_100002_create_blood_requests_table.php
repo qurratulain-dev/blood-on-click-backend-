@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('blood_requests', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('seeker_id')->constrained('seekers')->cascadeOnDelete();
+            $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
             $table->foreignId('bank_id')->nullable()->constrained('blood_banks')->nullOnDelete();
             $table->string('blood_group');
             $table->integer('quantity');

@@ -5,8 +5,6 @@ namespace App\Http\Controllers\Api\Auth;
 use App\Http\Controllers\Controller;
 use App\Models\BloodBank;
 use App\Models\BloodStock;
-use App\Models\Donor;
-use App\Models\Seeker;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,7 +17,7 @@ class RegistrationController extends Controller
     public function register(Request $request): JsonResponse
     {
         $rules = [
-            'role_type' => ['required', Rule::in(['donor', 'blood_bank', 'seeker'])],
+            'role_type' => ['required', Rule::in(['user', 'blood_bank'])],
             'name' => 'required|string|max:255',
             'username' => 'required|string|max:255|unique:users',
             'email' => 'required|string|email|max:255|unique:users',
@@ -27,10 +25,11 @@ class RegistrationController extends Controller
         ];
 
         $roleRules = match ($request->role_type) {
-            'donor' => [
+            'user' => [
                 'full_name' => 'required|string|max:255',
                 'phone' => 'required|string|max:20',
                 'blood_group' => ['required', Rule::in(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'])],
+                'city' => 'nullable|string|max:255',
                 'address' => 'required|string',
                 'age' => 'required|integer|min:18|max:100',
                 'weight' => 'required|numeric|min:30|max:300',
@@ -42,71 +41,60 @@ class RegistrationController extends Controller
                 'address' => 'required|string',
                 'registration_number' => 'required|string|max:255',
             ],
-            'seeker' => [
-                'full_name' => 'required|string|max:255',
-                'phone' => 'required|string|max:20',
-                'address' => 'required|string',
-            ],
             default => [],
         };
 
         $validated = $request->validate(array_merge($rules, $roleRules));
 
         $result = DB::transaction(function () use ($validated) {
-            $user = User::create([
+            $role = match ($validated['role_type']) {
+                'blood_bank' => 'Blood Bank',
+                default => 'User',
+            };
+
+            $userData = [
                 'name' => $validated['name'],
                 'username' => $validated['username'],
                 'email' => $validated['email'],
                 'password' => Hash::make($validated['password']),
-            ]);
+            ];
 
-            $role = match ($validated['role_type']) {
-                'donor' => 'Donor',
-                'blood_bank' => 'Blood Bank',
-                'seeker' => 'Seeker',
-                default => 'User',
-            };
+            if ($validated['role_type'] === 'blood_bank') {
+                $user = User::create($userData);
+                $user->assignRole($role);
+                $this->createBloodBankProfile($user, $validated);
+            } else {
+                $userData = array_merge($userData, [
+                    'full_name' => $validated['full_name'],
+                    'phone' => $validated['phone'],
+                    'blood_group' => $validated['blood_group'],
+                    'city' => $validated['city'] ?? null,
+                    'address' => $validated['address'],
+                    'age' => $validated['age'],
+                    'weight' => $validated['weight'],
+                    'gender' => $validated['gender'],
+                    'status' => 'available',
+                ]);
 
-            $user->assignRole($role);
-
-            match ($validated['role_type']) {
-                'donor' => $this->createDonorProfile($user, $validated),
-                'blood_bank' => $this->createBloodBankProfile($user, $validated),
-                'seeker' => $this->createSeekerProfile($user, $validated),
-                default => null,
-            };
+                $user = User::create($userData);
+                $user->assignRole($role);
+            }
 
             $role = $user->getRoleNames()->first();
             $permissions = $user->getAllPermissions()->pluck('name');
 
-            return [
-                'user' => $user->load(match ($validated['role_type']) {
-                    'blood_bank' => 'bloodBank',
-                    default => $validated['role_type'],
-                }),
-                'role' => $role,
-                'permissions' => $permissions,
-            ];
+            $userData = array_merge(
+                ['role' => $role, 'permissions' => $permissions],
+                $validated['role_type'] === 'blood_bank' ? ['user' => $user->load('bloodBank')] : ['user' => $user]
+            );
+
+            return $userData;
         });
 
         return response()->json([
             'message' => 'Registration successful',
             ...$result,
         ], 201);
-    }
-
-    private function createDonorProfile(User $user, array $data): void
-    {
-        Donor::create([
-            'user_id' => $user->id,
-            'full_name' => $data['full_name'],
-            'phone' => $data['phone'],
-            'blood_group' => $data['blood_group'],
-            'address' => $data['address'],
-            'age' => $data['age'],
-            'weight' => $data['weight'],
-            'gender' => $data['gender'],
-        ]);
     }
 
     private function createBloodBankProfile(User $user, array $data): void
@@ -127,15 +115,5 @@ class RegistrationController extends Controller
                 'quantity' => 0,
             ]);
         }
-    }
-
-    private function createSeekerProfile(User $user, array $data): void
-    {
-        Seeker::create([
-            'user_id' => $user->id,
-            'full_name' => $data['full_name'],
-            'phone' => $data['phone'],
-            'address' => $data['address'],
-        ]);
     }
 }

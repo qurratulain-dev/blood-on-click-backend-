@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('medical_reports', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('donor_id')->constrained('donors')->cascadeOnDelete();
+            $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
             $table->string('title');
             $table->string('file_path');
             $table->text('description')->nullable();

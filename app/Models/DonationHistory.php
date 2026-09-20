@@ -10,8 +10,8 @@ class DonationHistory extends Model
     protected $table = 'donation_history';
 
     protected $fillable = [
-        'donor_id', 'bank_id', 'blood_group', 'quantity',
-        'status', 'donation_date', 'notes', 'medical_report_path',
+        'user_id', 'bank_id', 'blood_group', 'quantity',
+        'status', 'donation_date', 'notes', 'medical_report_path', 'admin_message',
     ];
 
     protected function casts(): array
@@ -22,9 +22,9 @@ class DonationHistory extends Model
         ];
     }
 
-    public function donor(): BelongsTo
+    public function user(): BelongsTo
     {
-        return $this->belongsTo(Donor::class);
+        return $this->belongsTo(User::class, 'user_id');
     }
 
     public function bank(): BelongsTo

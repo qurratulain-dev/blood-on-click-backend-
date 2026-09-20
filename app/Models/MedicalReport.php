@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class MedicalReport extends Model
 {
     protected $fillable = [
-        'donor_id', 'title', 'file_path', 'description', 'is_verified',
+        'user_id', 'title', 'file_path', 'description', 'is_verified',
     ];
 
     protected function casts(): array
@@ -18,8 +18,8 @@ class MedicalReport extends Model
         ];
     }
 
-    public function donor(): BelongsTo
+    public function user(): BelongsTo
     {
-        return $this->belongsTo(Donor::class);
+        return $this->belongsTo(User::class, 'user_id');
     }
 }

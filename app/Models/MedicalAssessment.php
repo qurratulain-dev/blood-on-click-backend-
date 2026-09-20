@@ -10,7 +10,7 @@ class MedicalAssessment extends Model
     protected $table = 'medical_assessments';
 
     protected $fillable = [
-        'donor_id',
+        'user_id',
         'assessment_date',
         'blood_pressure',
         'hemoglobin',
@@ -34,9 +34,9 @@ class MedicalAssessment extends Model
         ];
     }
 
-    public function donor(): BelongsTo
+    public function user(): BelongsTo
     {
-        return $this->belongsTo(Donor::class);
+        return $this->belongsTo(User::class, 'user_id');
     }
 
     public function assessedBy(): BelongsTo

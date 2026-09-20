@@ -10,7 +10,7 @@ class BloodRequest extends Model
     protected $table = 'blood_requests';
 
     protected $fillable = [
-        'seeker_id', 'bank_id', 'blood_group', 'quantity',
+        'user_id', 'bank_id', 'blood_group', 'quantity',
         'patient_name', 'patient_age', 'hospital_name', 'urgency',
         'reason', 'status', 'requested_date', 'fulfilled_date',
     ];
@@ -25,9 +25,9 @@ class BloodRequest extends Model
         ];
     }
 
-    public function seeker(): BelongsTo
+    public function user(): BelongsTo
     {
-        return $this->belongsTo(Seeker::class);
+        return $this->belongsTo(User::class, 'user_id');
     }
 
     public function bank(): BelongsTo

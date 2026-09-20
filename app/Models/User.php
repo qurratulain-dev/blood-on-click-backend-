@@ -5,6 +5,7 @@ namespace App\Models;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 // use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -27,6 +28,18 @@ class User extends Authenticatable
         'email',
         'password',
         'is_active',
+        'full_name',
+        'phone',
+        'blood_group',
+        'city',
+        'address',
+        'age',
+        'date_of_birth',
+        'gender',
+        'weight',
+        'status',
+        'latitude',
+        'longitude',
     ];
 
     /**
@@ -50,12 +63,11 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
+            'date_of_birth' => 'date',
+            'weight' => 'decimal:2',
+            'latitude' => 'decimal:7',
+            'longitude' => 'decimal:7',
         ];
-    }
-
-    public function donor(): HasOne
-    {
-        return $this->hasOne(Donor::class);
     }
 
     public function bloodBank(): HasOne
@@ -63,8 +75,23 @@ class User extends Authenticatable
         return $this->hasOne(BloodBank::class);
     }
 
-    public function seeker(): HasOne
+    public function bloodRequests(): HasMany
     {
-        return $this->hasOne(Seeker::class);
+        return $this->hasMany(BloodRequest::class, 'user_id');
+    }
+
+    public function donationHistory(): HasMany
+    {
+        return $this->hasMany(DonationHistory::class, 'user_id');
+    }
+
+    public function medicalReports(): HasMany
+    {
+        return $this->hasMany(MedicalReport::class, 'user_id');
+    }
+
+    public function medicalAssessments(): HasMany
+    {
+        return $this->hasMany(MedicalAssessment::class, 'user_id');
     }
 }

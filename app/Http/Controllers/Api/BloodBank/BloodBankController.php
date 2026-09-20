@@ -38,16 +38,16 @@ class BloodBankController extends Controller
         ]);
 
         $recentRequests = BloodRequest::where('bank_id', $bankId)
-            ->with('seeker')
+            ->with('user')
             ->orderBy('requested_date', 'desc')
             ->limit(5)
             ->get()
             ->map(fn ($r) => [
                 'id' => $r->id,
-                'seeker_name' => $r->seeker->full_name ?? 'N/A',
+                'user_name' => $r->user->full_name ?? 'N/A',
                 'blood_group' => $r->blood_group,
                 'quantity' => $r->quantity,
-                'urgency' => $r->reason === 'emergency' ? 'Emergency' : 'Normal',
+                'urgency' => $r->urgency === 'emergency' ? 'Emergency' : 'Normal',
                 'requested_date' => $r->requested_date?->format('Y-m-d'),
                 'status' => $r->status,
             ]);
@@ -137,15 +137,15 @@ class BloodBankController extends Controller
                       $q2->whereNull('bank_id')->where('status', 'pending');
                   });
             })
-            ->with('seeker')
+            ->with('user')
             ->orderByRaw("CASE WHEN urgency = 'emergency' THEN 0 ELSE 1 END")
             ->orderBy('requested_date', 'asc')
             ->get()
             ->map(fn ($r) => [
                 'id' => $r->id,
-                'seeker_id' => $r->seeker_id,
-                'seeker_name' => $r->seeker->full_name ?? 'N/A',
-                'seeker_phone' => $r->seeker->phone ?? 'N/A',
+                'user_id' => $r->user_id,
+                'user_name' => $r->user->full_name ?? 'N/A',
+                'user_phone' => $r->user->phone ?? 'N/A',
                 'blood_group' => $r->blood_group,
                 'quantity' => $r->quantity,
                 'patient_name' => $r->patient_name,
@@ -192,8 +192,8 @@ class BloodBankController extends Controller
             $stock->decrement('quantity', $bloodRequest->quantity);
 
             Notification::create([
-                'user_type' => 'seeker',
-                'user_id' => $bloodRequest->seeker_id,
+                'user_type' => 'user',
+                'user_id' => $bloodRequest->user_id,
                 'title' => 'Blood Request Approved',
                 'message' => "Your blood request for {$bloodRequest->quantity} unit(s) of {$bloodRequest->blood_group} has been approved. Please visit our blood bank.",
             ]);
@@ -208,8 +208,8 @@ class BloodBankController extends Controller
             $bloodRequest->update(['status' => 'rejected']);
 
             Notification::create([
-                'user_type' => 'seeker',
-                'user_id' => $bloodRequest->seeker_id,
+                'user_type' => 'user',
+                'user_id' => $bloodRequest->user_id,
                 'title' => 'Blood Request Cancelled',
                 'message' => 'Your blood request has been cancelled by the blood bank. Please try another bank.',
             ]);
@@ -220,8 +220,8 @@ class BloodBankController extends Controller
             ]);
 
             Notification::create([
-                'user_type' => 'seeker',
-                'user_id' => $bloodRequest->seeker_id,
+                'user_type' => 'user',
+                'user_id' => $bloodRequest->user_id,
                 'title' => 'Blood Request Completed',
                 'message' => 'Your blood request has been marked as completed. Thank you for using our service.',
             ]);
@@ -271,15 +271,15 @@ class BloodBankController extends Controller
 
         $donations = DonationHistory::where('bank_id', $bank->id)
             ->whereBetween('donation_date', [$from, $to])
-            ->with('donor')
+            ->with('user')
             ->orderBy('donation_date', 'desc')
             ->get()
             ->map(fn ($d) => [
                 'id' => $d->id,
                 'donation_date' => $d->donation_date?->format('Y-m-d'),
-                'donor_name' => $d->donor->full_name ?? 'N/A',
+                'donor_name' => $d->user->full_name ?? 'N/A',
                 'blood_group' => $d->blood_group,
-                'phone' => $d->donor->phone ?? 'N/A',
+                'phone' => $d->user->phone ?? 'N/A',
                 'quantity' => $d->quantity,
                 'status' => $d->status,
             ]);
@@ -288,8 +288,8 @@ class BloodBankController extends Controller
         $totalUnits = $donations->sum('quantity');
         $uniqueDonors = DonationHistory::where('bank_id', $bank->id)
             ->whereBetween('donation_date', [$from, $to])
-            ->distinct('donor_id')
-            ->count('donor_id');
+            ->distinct('user_id')
+            ->count('user_id');
         $avgUnits = $totalDonations > 0 ? round($totalUnits / $totalDonations, 1) : 0;
 
         $groupDistribution = DonationHistory::where('bank_id', $bank->id)
