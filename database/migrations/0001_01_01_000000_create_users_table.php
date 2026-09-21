@@ -19,7 +19,7 @@ return new class extends Migration
             $table->boolean('is_active')->default(true);
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
-            // Unified profile columns (replaces donor/seeker profiles)
+            // Unified profile columns (single User profile for donating and requesting)
             $table->string('full_name')->nullable();
             $table->string('phone')->nullable();
             $table->enum('blood_group', ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'])->nullable();

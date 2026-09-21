@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\BloodBank;
 use App\Models\BloodRequest;
 use App\Models\DonationHistory;
+use App\Models\MedicalAssessment;
 use App\Models\MedicalReport;
 use App\Models\Notification;
 use App\Models\User;
@@ -205,6 +206,25 @@ class UserController extends Controller
             'notes' => 'nullable|string',
         ]);
 
+        $eligibility = $this->donationEligibility($user);
+
+        if (! $eligibility['can_donate']) {
+            $messages = [
+                'not_assessed' => 'A medical assessment is required before you can donate. Please request an assessment.',
+                'not_eligible' => 'You are not currently eligible to donate based on your latest medical assessment.',
+                'waiting_period' => 'You are still within the 90-day waiting period after your last completed donation.',
+            ];
+
+            return response()->json([
+                'message' => $messages[$eligibility['status']] ?? 'You are not currently eligible to donate.',
+                'eligibility' => [
+                    'status' => $eligibility['status'],
+                    'can_donate' => false,
+                    'next_eligible_date' => $eligibility['next_eligible_date'],
+                ],
+            ], 422);
+        }
+
         $donation = DonationHistory::create([
             'user_id' => $user->id,
             'bank_id' => $validated['bank_id'],
@@ -290,7 +310,125 @@ class UserController extends Controller
         ], 201);
     }
 
-    // ==================== BLOOD REQUEST (was seeker) ====================
+    // ==================== DONATION ELIGIBILITY ====================
+
+    /**
+     * Single source of truth for donation eligibility, derived from existing
+     * data: the latest medical assessment plus the 90-day interval after the
+     * last COMPLETED donation. No new medical rules are introduced.
+     *
+     * Used both by the read-only GET /user/eligibility endpoint and as the
+     * authorization check inside createDonation, so the server enforces the
+     * exact same rules the UI already relies on.
+     */
+    private function donationEligibility(User $user): array
+    {
+        $latestAssessment = MedicalAssessment::where('user_id', $user->id)
+            ->orderByDesc('assessment_date')
+            ->orderByDesc('created_at')
+            ->first();
+
+        $lastCompleted = DonationHistory::where('user_id', $user->id)
+            ->where('status', 'completed')
+            ->orderByDesc('donation_date')
+            ->first();
+
+        $nextEligibleDate = $lastCompleted?->donation_date
+            ? $lastCompleted->donation_date->copy()->addDays(90)
+            : null;
+
+        $withinWaitingPeriod = $nextEligibleDate !== null && $nextEligibleDate->isFuture();
+
+        if (! $latestAssessment) {
+            $status = 'not_assessed';
+        } elseif (! $latestAssessment->is_eligible) {
+            $status = 'not_eligible';
+        } elseif ($withinWaitingPeriod) {
+            $status = 'waiting_period';
+        } else {
+            $status = 'eligible';
+        }
+
+        $marker = '[user:' . $user->id . ']';
+        $assessmentRequested = Notification::where('user_type', 'admin')
+            ->where('title', 'Medical Assessment Requested')
+            ->where('message', 'like', '%' . $marker . '%')
+            ->where('is_read', false)
+            ->exists();
+
+        return [
+            'status' => $status,
+            'can_donate' => $status === 'eligible',
+            'next_eligible_date' => $nextEligibleDate?->format('Y-m-d'),
+            'assessment_requested' => $assessmentRequested,
+            'latest_assessment' => $latestAssessment ? [
+                'id' => $latestAssessment->id,
+                'assessment_date' => $latestAssessment->assessment_date?->format('Y-m-d'),
+                'is_eligible' => $latestAssessment->is_eligible,
+                'blood_pressure' => $latestAssessment->blood_pressure,
+                'hemoglobin' => $latestAssessment->hemoglobin,
+                'temperature' => $latestAssessment->temperature,
+                'pulse' => $latestAssessment->pulse,
+                'weight' => $latestAssessment->weight,
+                'notes' => $latestAssessment->notes,
+            ] : null,
+        ];
+    }
+
+    public function eligibility(Request $request): JsonResponse
+    {
+        return response()->json($this->donationEligibility($this->getUser($request)));
+    }
+
+    /**
+     * Ask for a medical assessment. Assessments themselves are recorded by
+     * Admin (see AssessmentController); this only raises an admin notification
+     * so a professional can perform the assessment. Ownership is always the
+     * authenticated user and duplicate pending requests are avoided.
+     */
+    public function requestAssessment(Request $request): JsonResponse
+    {
+        $user = $this->getUser($request);
+
+        $marker = '[user:' . $user->id . ']';
+
+        $alreadyRequested = Notification::where('user_type', 'admin')
+            ->where('title', 'Medical Assessment Requested')
+            ->where('message', 'like', '%' . $marker . '%')
+            ->where('is_read', false)
+            ->exists();
+
+        if ($alreadyRequested) {
+            return response()->json([
+                'message' => 'Your assessment request is already pending review.',
+                'requested' => true,
+            ]);
+        }
+
+        $admins = User::role('Admin')->get();
+
+        if ($admins->isEmpty()) {
+            return response()->json([
+                'message' => 'No reviewer is currently available. Please try again later.',
+            ], 503);
+        }
+
+        foreach ($admins as $admin) {
+            Notification::create([
+                'user_type' => 'admin',
+                'user_id' => $admin->id,
+                'title' => 'Medical Assessment Requested',
+                'message' => "{$user->full_name} {$marker} has requested a medical assessment for blood donation.",
+            ]);
+        }
+
+        return response()->json([
+            'message' => 'Assessment requested. A medical professional will review your eligibility.',
+            'requested' => true,
+        ], 201);
+    }
+
+    // ==================== BLOOD REQUEST ====================
 
     public function searchDonors(Request $request): JsonResponse
     {
@@ -309,30 +447,54 @@ class UserController extends Controller
             });
         }
 
-        $donors = $query->get()->map(function ($user) {
-            $lastDonation = DonationHistory::where('user_id', $user->id)
-                ->where('status', 'completed')
-                ->orderBy('donation_date', 'desc')
-                ->first();
-            return [
-                'id' => $user->id,
-                'full_name' => $user->full_name,
-                'phone' => $user->phone,
-                'blood_group' => $user->blood_group,
-                'address' => $user->address,
-                'city' => $user->city,
-                'age' => $user->age,
-                'weight' => $user->weight,
-                'gender' => $user->gender,
-                'last_donation_date' => $lastDonation?->donation_date?->format('Y-m-d'),
-                'last_donation_date_formatted' => $lastDonation?->donation_date?->format('d M Y'),
-            ];
-        })->sortBy('last_donation_date')->values();
+        // Least-privilege projection: only identity, blood group, city and
+        // availability are needed to browse and pick a potential donor. Phone
+        // is disclosed separately via /user/donors/{id}/contact, and the last
+        // donation date is used only internally to keep the existing ordering.
+        $donors = $query->get()
+            ->map(function ($user) {
+                $lastDonation = DonationHistory::where('user_id', $user->id)
+                    ->where('status', 'completed')
+                    ->orderBy('donation_date', 'desc')
+                    ->first();
+                return [
+                    'id' => $user->id,
+                    'full_name' => $user->full_name,
+                    'blood_group' => $user->blood_group,
+                    'city' => $user->city,
+                    'status' => $user->status,
+                    'last_donation_at' => $lastDonation?->donation_date,
+                ];
+            })
+            ->sortBy('last_donation_at')
+            ->map(fn ($donor) => collect($donor)->except('last_donation_at')->all())
+            ->values();
 
         return response()->json([
             'donors' => $donors,
             'count' => $donors->count(),
             'blood_group' => $validated['blood_group'],
+        ]);
+    }
+
+    /**
+     * Explicit per-donor contact action: returns the phone number only when a
+     * User asks to contact a specific donor (the existing "Contact Donor"
+     * tel: flow), never in bulk search results. Only available donors that
+     * could appear in search are reachable.
+     */
+    public function donorContact(Request $request, User $donor): JsonResponse
+    {
+        $donor = User::where('status', 'available')->find($donor->id);
+
+        if (! $donor) {
+            return response()->json(['message' => 'Donor not found'], 404);
+        }
+
+        return response()->json([
+            'id' => $donor->id,
+            'full_name' => $donor->full_name,
+            'phone' => $donor->phone,
         ]);
     }
 

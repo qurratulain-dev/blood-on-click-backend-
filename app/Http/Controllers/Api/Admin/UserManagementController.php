@@ -283,7 +283,7 @@ class UserManagementController extends Controller
 
         $query = DonationHistory::with(['user', 'bank']);
 
-        if ($status && in_array($status, ['pending', 'completed', 'cancelled'])) {
+        if ($status && in_array($status, ['pending', 'completed', 'rejected'])) {
             $query->where('status', $status);
         }
 
@@ -309,7 +309,7 @@ class UserManagementController extends Controller
 
         $pendingCount = DonationHistory::where('status', 'pending')->count();
         $completedCount = DonationHistory::where('status', 'completed')->count();
-        $cancelledCount = DonationHistory::where('status', 'cancelled')->count();
+        $rejectedCount = DonationHistory::where('status', 'rejected')->count();
         $totalUnits = DonationHistory::where('status', 'completed')->sum('quantity');
 
         return response()->json([
@@ -317,7 +317,7 @@ class UserManagementController extends Controller
             'counts' => [
                 'pending' => $pendingCount,
                 'completed' => $completedCount,
-                'cancelled' => $cancelledCount,
+                'rejected' => $rejectedCount,
                 'total_units' => $totalUnits,
             ],
         ]);
@@ -370,9 +370,16 @@ class UserManagementController extends Controller
     public function rejectDonation(Request $request, int $id): JsonResponse
     {
         $donation = DonationHistory::findOrFail($id);
+
+        // A donation can only be rejected while it is pending; completed or
+        // already-rejected records must not be moved back to rejected.
+        if ($donation->status !== 'pending') {
+            return response()->json(['message' => 'Only pending donations can be rejected'], 422);
+        }
+
         $adminMessage = $request->input('admin_message');
         $donation->update([
-            'status' => 'cancelled',
+            'status' => 'rejected',
             'admin_message' => $adminMessage,
         ]);
 
@@ -389,7 +396,19 @@ class UserManagementController extends Controller
     public function moveToPending(int $id): JsonResponse
     {
         $donation = DonationHistory::findOrFail($id);
+
+        // Only rejected donations may be reopened for review. A completed
+        // donation has already bumped blood stock and started the donor's
+        // waiting period, so moving it back to pending and re-verifying would
+        // double-count stock and corrupt the donor's eligibility.
+        if ($donation->status !== 'rejected') {
+            return response()->json([
+                'message' => 'Only rejected donations can be moved back to pending.',
+            ], 422);
+        }
+
         $donation->update(['status' => 'pending']);
+
         return response()->json(['message' => 'Donation moved to pending!']);
     }
 
@@ -496,6 +515,7 @@ class UserManagementController extends Controller
                 'age' => $u->age,
                 'weight' => $u->weight,
                 'status' => $u->status,
+                'is_active' => (bool) $u->is_active,
                 'user_type' => 'user',
             ]);
 
@@ -509,6 +529,7 @@ class UserManagementController extends Controller
                 'phone' => $b->phone,
                 'registration_number' => $b->registration_number,
                 'status' => $b->status,
+                'is_active' => (bool) ($b->user?->is_active ?? false),
                 'user_type' => 'bank',
             ]);
 
@@ -536,6 +557,7 @@ class UserManagementController extends Controller
             'weight' => 'sometimes|numeric|min:30',
             'gender' => ['sometimes', Rule::in(['Male', 'Female', 'Other'])],
             'status' => ['sometimes', Rule::in(['available', 'not_available'])],
+            'is_active' => ['sometimes', 'boolean'],
             'latitude' => 'nullable|numeric',
             'longitude' => 'nullable|numeric',
         ]);
@@ -563,11 +585,16 @@ class UserManagementController extends Controller
             'registration_number' => 'sometimes|string|max:255',
             'license_number' => 'nullable|string|max:255',
             'status' => ['sometimes', Rule::in(['active', 'inactive'])],
+            'is_active' => ['sometimes', 'boolean'],
             'latitude' => 'nullable|numeric',
             'longitude' => 'nullable|numeric',
         ]);
 
         $bank->update($validated);
+
+        if (array_key_exists('is_active', $validated)) {
+            $bank->user?->update(['is_active' => $validated['is_active']]);
+        }
 
         Notification::create([
             'user_type' => 'blood_bank',
@@ -597,6 +624,42 @@ class UserManagementController extends Controller
         });
     }
 
+    // ==================== ADMIN NOTIFICATIONS ====================
+    // Admin-targeted notifications (e.g. "Medical Assessment Requested",
+    // request approved by a bank) need a surface or they are invisible to the
+    // admin and the whole assessment/approval workflow stalls.
+
+    public function notifications(): JsonResponse
+    {
+        $notifications = Notification::where('user_type', 'admin')
+            ->where('user_id', auth()->id())
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json($notifications);
+    }
+
+    public function markNotificationRead(Notification $notification): JsonResponse
+    {
+        if ($notification->user_type !== 'admin' || $notification->user_id !== auth()->id()) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $notification->update(['is_read' => true]);
+
+        return response()->json(['message' => 'Notification marked as read']);
+    }
+
+    public function markAllNotificationsRead(): JsonResponse
+    {
+        Notification::where('user_type', 'admin')
+            ->where('user_id', auth()->id())
+            ->where('is_read', false)
+            ->update(['is_read' => true]);
+
+        return response()->json(['message' => 'All notifications marked as read']);
+    }
+
     // ==================== MANAGE REQUESTS ====================
 
     public function allRequests(): JsonResponse
@@ -607,6 +670,7 @@ class UserManagementController extends Controller
             ->map(fn ($r) => [
                 'id' => $r->id,
                 'user_name' => $r->user->full_name ?? 'N/A',
+                'bank_id' => $r->bank_id,
                 'bank_name' => $r->bank->bank_name ?? 'N/A',
                 'blood_group' => $r->blood_group,
                 'quantity' => $r->quantity,
@@ -626,24 +690,69 @@ class UserManagementController extends Controller
         ]);
 
         $bloodRequest = BloodRequest::findOrFail($id);
+
+        if ($validated['status'] === 'approved') {
+            // Only a pending request that is already assigned to a bank can be
+            // approved - otherwise there is no stock to verify/reserve.
+            if ($bloodRequest->status !== 'pending') {
+                return response()->json(['message' => 'Only pending requests can be approved.'], 422);
+            }
+
+            if (! $bloodRequest->bank_id) {
+                return response()->json(['message' => 'Cannot approve an unassigned request. Assign a blood bank first.'], 422);
+            }
+
+            // Verify stock, deduct it, mark the request approved and notify
+            // within one transaction so none of these can become inconsistent.
+            $result = DB::transaction(function () use ($bloodRequest) {
+                $reserved = BloodStock::reserveForRequest(
+                    $bloodRequest->bank_id,
+                    $bloodRequest->blood_group,
+                    $bloodRequest->quantity
+                );
+
+                if (! $reserved['reserved']) {
+                    return $reserved;
+                }
+
+                $bloodRequest->update(['status' => 'approved']);
+
+                Notification::create([
+                    'user_type' => 'user',
+                    'user_id' => $bloodRequest->user_id,
+                    'title' => 'Blood Request Approved',
+                    'message' => "Your blood request for {$bloodRequest->quantity} unit(s) of {$bloodRequest->blood_group} has been approved.",
+                ]);
+
+                return $reserved;
+            });
+
+            if (! $result['reserved']) {
+                return response()->json([
+                    'message' => "Insufficient stock! Available: {$result['available']} units, Required: {$bloodRequest->quantity} units",
+                ], 422);
+            }
+
+            return response()->json(['message' => 'Request status updated to approved']);
+        }
+
+        // Reject no-op requests and transitions outside the explicit whitelist.
+        // Invalid transitions change nothing: the request keeps its status,
+        // stock is untouched and no status notification is sent.
+        if ($bloodRequest->status === $validated['status']) {
+            return response()->json(['message' => "Request is already {$validated['status']}"], 422);
+        }
+
+        if (! $bloodRequest->canTransitionTo($validated['status'])) {
+            return response()->json([
+                'message' => "Request cannot be moved from {$bloodRequest->status} to {$validated['status']}.",
+            ], 422);
+        }
+
         $bloodRequest->update(['status' => $validated['status']]);
 
         if ($validated['status'] === 'fulfilled') {
             $bloodRequest->update(['fulfilled_date' => now()]);
-        } elseif ($validated['status'] === 'approved') {
-            $stock = BloodStock::where('bank_id', $bloodRequest->bank_id)
-                ->where('blood_group', $bloodRequest->blood_group)
-                ->first();
-            if ($stock && $stock->quantity >= $bloodRequest->quantity) {
-                $stock->decrement('quantity', $bloodRequest->quantity);
-            }
-
-            Notification::create([
-                'user_type' => 'user',
-                'user_id' => $bloodRequest->user_id,
-                'title' => 'Blood Request Approved',
-                'message' => "Your blood request for {$bloodRequest->quantity} unit(s) of {$bloodRequest->blood_group} has been approved.",
-            ]);
         }
 
         return response()->json(['message' => 'Request status updated to ' . $validated['status']]);

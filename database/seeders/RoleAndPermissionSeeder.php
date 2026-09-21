@@ -21,7 +21,7 @@ class RoleAndPermissionSeeder extends Seeder
             'assessments.manage', 'assessments.create', 'assessments.view',
             'blood-banks.recommend',
 
-            // User (unified donor + seeker)
+            // User (unified donor + requester)
             'user.profile.view', 'user.profile.edit',
             'user.donations.create', 'user.donations.view',
             'user.requests.create', 'user.requests.view',

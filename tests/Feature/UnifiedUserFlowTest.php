@@ -63,6 +63,17 @@ class UnifiedUserFlowTest extends TestCase
 
     public function test_user_dashboard_combines_donor_and_request_stats(): void
     {
+        $user = User::where('email', 'user@example.com')->first();
+
+        $adminToken = $this->loginAs('test@example.com');
+        $this->withHeader('Authorization', 'Bearer ' . $adminToken)
+            ->postJson('/api/admin/assessments', [
+                'user_id' => $user->id,
+                'assessment_date' => now()->toDateString(),
+                'is_eligible' => TRUE,
+            ])
+            ->assertStatus(201);
+
         $token = $this->loginAs('user@example.com');
 
         $this->withHeader('Authorization', 'Bearer ' . $token)

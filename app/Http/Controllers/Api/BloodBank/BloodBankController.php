@@ -8,8 +8,10 @@ use App\Models\BloodRequest;
 use App\Models\BloodStock;
 use App\Models\DonationHistory;
 use App\Models\Notification;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
@@ -172,46 +174,69 @@ class BloodBankController extends Controller
             'status' => ['required', Rule::in(['approved', 'rejected', 'fulfilled'])],
         ]);
 
-        if ($validated['status'] === 'approved') {
-            $stock = BloodStock::where('bank_id', $bank->id)
-                ->where('blood_group', $bloodRequest->blood_group)
-                ->first();
+        // State-aware guard: the bank workflow is pending -> approved/rejected,
+        // approved -> fulfilled. No-ops and transitions outside that whitelist
+        // change nothing and are rejected so approval can never consume stock
+        // twice.
+        if ($bloodRequest->status === $validated['status']) {
+            return response()->json(['message' => "Request is already {$validated['status']}"], 422);
+        }
 
-            if (!$stock || $stock->quantity < $bloodRequest->quantity) {
-                $available = $stock->quantity ?? 0;
+        if (! $bloodRequest->canTransitionTo($validated['status'])) {
+            return response()->json([
+                'message' => "Request cannot be moved from {$bloodRequest->status} to {$validated['status']}.",
+            ], 422);
+        }
+
+        if ($validated['status'] === 'approved') {
+            $result = DB::transaction(function () use ($bloodRequest, $bank) {
+                $reserved = BloodStock::reserveForRequest(
+                    $bank->id,
+                    $bloodRequest->blood_group,
+                    $bloodRequest->quantity
+                );
+
+                if (! $reserved['reserved']) {
+                    return $reserved;
+                }
+
+                $bloodRequest->update([
+                    'status' => 'approved',
+                    'bank_id' => $bank->id,
+                ]);
+
+                Notification::create([
+                    'user_type' => 'user',
+                    'user_id' => $bloodRequest->user_id,
+                    'title' => 'Blood Request Approved',
+                    'message' => "Your blood request for {$bloodRequest->quantity} unit(s) of {$bloodRequest->blood_group} has been approved. Please visit our blood bank.",
+                ]);
+
+                foreach (User::role('Admin')->get() as $admin) {
+                    Notification::create([
+                        'user_type' => 'admin',
+                        'user_id' => $admin->id,
+                        'title' => 'Request Approved',
+                        'message' => "Blood request #{$bloodRequest->id} has been approved by {$bank->bank_name}.",
+                    ]);
+                }
+
+                return $reserved;
+            });
+
+            if (! $result['reserved']) {
                 return response()->json([
-                    'message' => "Insufficient stock! Available: {$available} units, Required: {$bloodRequest->quantity} units",
+                    'message' => "Insufficient stock! Available: {$result['available']} units, Required: {$bloodRequest->quantity} units",
                 ], 422);
             }
-
-            $bloodRequest->update([
-                'status' => 'approved',
-                'bank_id' => $bank->id,
-            ]);
-
-            $stock->decrement('quantity', $bloodRequest->quantity);
-
-            Notification::create([
-                'user_type' => 'user',
-                'user_id' => $bloodRequest->user_id,
-                'title' => 'Blood Request Approved',
-                'message' => "Your blood request for {$bloodRequest->quantity} unit(s) of {$bloodRequest->blood_group} has been approved. Please visit our blood bank.",
-            ]);
-
-            Notification::create([
-                'user_type' => 'admin',
-                'user_id' => 1,
-                'title' => 'Request Approved',
-                'message' => "Blood request #{$bloodRequest->id} has been approved by {$bank->bank_name}.",
-            ]);
         } elseif ($validated['status'] === 'rejected') {
             $bloodRequest->update(['status' => 'rejected']);
 
             Notification::create([
                 'user_type' => 'user',
                 'user_id' => $bloodRequest->user_id,
-                'title' => 'Blood Request Cancelled',
-                'message' => 'Your blood request has been cancelled by the blood bank. Please try another bank.',
+                'title' => 'Blood Request Rejected',
+                'message' => 'Your blood request has been rejected by the blood bank. Please try another bank.',
             ]);
         } elseif ($validated['status'] === 'fulfilled') {
             $bloodRequest->update([

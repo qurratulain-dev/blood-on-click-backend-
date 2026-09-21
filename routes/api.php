@@ -10,10 +10,10 @@ use App\Http\Controllers\Api\User\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-Route::post('/register', [RegistrationController::class, 'register']);
-Route::post('/login', [LoginController::class, 'login']);
+Route::post('/register', [RegistrationController::class, 'register'])->middleware('throttle:register');
+Route::post('/login', [LoginController::class, 'login'])->middleware('throttle:login');
 
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'account.active'])->group(function () {
     Route::post('/logout', [LogoutController::class, 'logout']);
 
     // Current user with role, permissions, and profile
@@ -40,13 +40,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/reports', [BloodBankController::class, 'reports']);
     });
 
-    // ==================== USER ROUTES (unified donor + seeker) ====================
+    // ==================== USER ROUTES (single User account covers donating + requesting) ====================
     Route::middleware(['role:User'])->prefix('user')->group(function () {
         Route::get('/dashboard', [UserController::class, 'dashboard']);
         Route::get('/profile', [UserController::class, 'profile']);
         Route::put('/profile', [UserController::class, 'updateProfile']);
         Route::get('/donors', [UserController::class, 'searchDonors']);
+        Route::get('/donors/{donor}/contact', [UserController::class, 'donorContact']);
         Route::get('/banks', [UserController::class, 'searchBanks']);
+        Route::get('/eligibility', [UserController::class, 'eligibility']);
+        Route::post('/assessment-requests', [UserController::class, 'requestAssessment']);
         Route::get('/donations', [UserController::class, 'donations']);
         Route::post('/donations', [UserController::class, 'createDonation']);
         Route::get('/medical-reports', [UserController::class, 'medicalReports']);
@@ -84,6 +87,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/users/{type}/{id}', [UserManagementController::class, 'deleteUser']);
         Route::get('/requests', [UserManagementController::class, 'allRequests']);
         Route::put('/requests/{bloodRequest}/status', [UserManagementController::class, 'updateRequestStatus']);
+        Route::get('/notifications', [UserManagementController::class, 'notifications']);
+        Route::put('/notifications/read-all', [UserManagementController::class, 'markAllNotificationsRead']);
+        Route::put('/notifications/{notification}/read', [UserManagementController::class, 'markNotificationRead']);
         Route::post('/add-user', [UserManagementController::class, 'addUser']);
         Route::post('/add-blood-bank', [UserManagementController::class, 'addBloodBank']);
     });

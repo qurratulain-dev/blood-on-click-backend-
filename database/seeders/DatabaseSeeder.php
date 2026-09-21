@@ -35,7 +35,7 @@ class DatabaseSeeder extends Seeder
             ]
         )->assignRole('Admin');
 
-        // Normal user (unified donor + seeker)
+        // Normal user (unified donor + requester)
         User::updateOrCreate(
             ['email' => 'user@example.com'],
             [
